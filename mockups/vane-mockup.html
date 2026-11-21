@@ -1,0 +1,895 @@
+<title>Vane Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: a Windows app window (title bar blends into top bar) with a left nav; Overview opens on a schematic of the case with live screen previews. */
+:root {
+  --bg: #e6ebef;
+  --bg-wash: rgba(15, 143, 138, 0.14);
+  --ink: #18212b;
+  --ink-2: #4b5967;
+  --ink-3: #71808e;
+  --line: rgba(24, 33, 43, 0.12);
+  --surface: rgba(255, 255, 255, 0.5);
+  --surface-hi: rgba(255, 255, 255, 0.78);
+  --chrome: rgba(255, 255, 255, 0.34);
+  --accent: #0f8f8a;
+  --accent-soft: rgba(15, 143, 138, 0.13);
+  --on-accent: #ffffff;
+  --ok: #24895a;
+  --warn: #b8740f;
+  --hot: #c63d33;
+  --bezel: #1d242c;
+  --shadow: 0 18px 50px rgba(30, 45, 60, 0.16);
+  --font-ui: "Figtree", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Barlow Semi Condensed", "Bahnschrift", "Segoe UI", sans-serif;
+  --r-win: 12px;
+  --r-box: 10px;
+  --r-ctl: 7px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a20; --bg-wash: rgba(44, 196, 188, 0.12); --ink: #e5ebf0; --ink-2: #9aa8b5; --ink-3: #6f7d8a;
+    --line: rgba(229, 235, 240, 0.1); --surface: rgba(255, 255, 255, 0.045); --surface-hi: rgba(255, 255, 255, 0.085);
+    --chrome: rgba(255, 255, 255, 0.025); --accent: #2cc4bc; --accent-soft: rgba(44, 196, 188, 0.14); --on-accent: #06211f;
+    --ok: #4cc27f; --warn: #eea53c; --hot: #f06257; --bezel: #070a0d; --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a20; --bg-wash: rgba(44, 196, 188, 0.12); --ink: #e5ebf0; --ink-2: #9aa8b5; --ink-3: #6f7d8a;
+  --line: rgba(229, 235, 240, 0.1); --surface: rgba(255, 255, 255, 0.045); --surface-hi: rgba(255, 255, 255, 0.085);
+  --chrome: rgba(255, 255, 255, 0.025); --accent: #2cc4bc; --accent-soft: rgba(44, 196, 188, 0.14); --on-accent: #06211f;
+  --ok: #4cc27f; --warn: #eea53c; --hot: #f06257; --bezel: #070a0d; --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  background-image: radial-gradient(1100px 600px at 12% -10%, var(--bg-wash), transparent 70%),
+                    radial-gradient(900px 500px at 110% 110%, var(--bg-wash), transparent 70%);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+  padding-block: 28px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.intro { max-width: 1180px; margin: 0 auto 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.intro h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+.intro p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+
+/* Window */
+.window {
+  max-width: 1180px; margin: 0 auto; border-radius: var(--r-win); border: 1px solid var(--line);
+  background: var(--chrome); backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: var(--shadow); overflow: hidden; display: grid; grid-template-rows: auto 1fr; min-height: 720px;
+}
+.titlebar { display: flex; align-items: center; gap: 10px; height: 40px; padding-left: 14px; border-bottom: 1px solid var(--line); user-select: none; }
+.titlebar .name { font-weight: 600; font-size: 13px; }
+.titlebar .sub { color: var(--ink-3); font-size: 12px; }
+.titlebar .spacer { flex: 1; }
+.winbtn { width: 46px; height: 40px; border: 0; background: transparent; display: grid; place-items: center; color: var(--ink-2); }
+.winbtn:hover { background: var(--surface-hi); }
+.winbtn.close:hover { background: var(--hot); color: #fff; }
+.logo { width: 20px; height: 20px; flex: none; }
+
+.body { display: grid; grid-template-columns: 208px 1fr; min-height: 0; }
+nav.side { border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+.navbtn { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; text-align: left; padding: 9px 12px; border-radius: var(--r-ctl); color: var(--ink-2); font-weight: 500; position: relative; }
+.navbtn svg { width: 18px; height: 18px; flex: none; }
+.navbtn:hover { background: var(--surface); color: var(--ink); }
+.navbtn[aria-current="page"] { background: var(--surface-hi); color: var(--ink); }
+.navbtn[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--accent); }
+.side .grow { flex: 1; }
+.side-status { margin: 8px 4px 0; padding: 10px 12px; border-radius: var(--r-box); border: 1px solid var(--line); background: var(--surface); font-size: 12px; color: var(--ink-2); display: grid; gap: 4px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+.dot.warn { background: var(--warn); }
+
+main { padding: 22px 26px 30px; min-width: 0; }
+.page { display: none; gap: 20px; }
+.page.on { display: grid; }
+.page-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px 20px; }
+.page-head h2 { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; }
+.page-head p { margin: 2px 0 0; color: var(--ink-2); }
+
+.box { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-box); padding: 16px; min-width: 0; }
+.box h3 { margin: 0 0 12px; font-size: 0.95rem; font-weight: 600; }
+.muted { color: var(--ink-2); }
+.small { font-size: 12px; }
+
+/* Buttons and controls */
+.btn { border: 1px solid var(--line); background: var(--surface-hi); padding: 7px 14px; border-radius: var(--r-ctl); font-weight: 500; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn.primary:hover { filter: brightness(1.07); }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 6px; color: var(--ink-2); font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--surface-hi); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.field { display: grid; gap: 6px; }
+.field > span { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+select { border: 1px solid var(--line); background: var(--surface-hi); border-radius: var(--r-ctl); padding: 6px 10px; }
+input[type="range"] { accent-color: var(--accent); width: 100%; }
+.switch { position: relative; width: 40px; height: 22px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface-hi); flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink-3); transition: transform .15s, background .15s; }
+.switch[aria-checked="true"] { background: var(--accent); border-color: transparent; }
+.switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--on-accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); white-space: nowrap; }
+.chip.ok { color: var(--ok); }
+.chip.warn { color: var(--warn); }
+
+/* Overview: case schematic */
+.ov-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.case { position: relative; border: 1.5px solid var(--line); border-radius: 18px; padding: 18px; display: grid; gap: 14px; grid-template-columns: 1fr auto; grid-template-areas: "rad rad" "pump front" "inf front"; background: var(--surface); }
+.case-label { position: absolute; top: -10px; left: 18px; padding: 0 8px; background: var(--bg); font-size: 12px; color: var(--ink-3); border-radius: 4px; }
+.part { border: 1px solid var(--line); border-radius: var(--r-box); background: var(--surface); padding: 10px 12px; display: grid; gap: 8px; text-align: left; transition: border-color .15s; }
+.part:hover { border-color: var(--accent); }
+.part .lbl { font-size: 12px; color: var(--ink-2); font-weight: 500; display: flex; justify-content: space-between; gap: 8px; }
+.rad { grid-area: rad; }
+.rad .fans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.fanicon { aspect-ratio: 1; max-width: 72px; width: 100%; margin: 0 auto; }
+.fanicon .blades { transform-origin: 50% 50%; animation: spin linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.fan-rpm { text-align: center; font-size: 13px; }
+.pump { grid-area: pump; grid-template-columns: auto 1fr; align-items: center; gap: 14px; }
+.pump .lbl { grid-column: 1 / -1; }
+.front { grid-area: front; align-content: start; }
+.front .stack { display: grid; gap: 10px; justify-items: center; }
+.inf { grid-area: inf; grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
+.inf .lbl { grid-column: 1 / -1; }
+.lcd-sq { width: 120px; height: 120px; border-radius: 10px; border: 5px solid var(--bezel); background: #000; display: block; }
+.lcd-rd { width: 92px; height: 92px; border-radius: 50%; border: 5px solid var(--bezel); background: #000; display: block; }
+.readout { display: grid; gap: 2px; }
+.readout b { font-family: var(--font-num); font-weight: 600; font-size: 1.6rem; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.part .lbl span:last-child { white-space: nowrap; }
+.readout span { font-size: 12px; color: var(--ink-2); }
+
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.stat { border: 1px solid var(--line); border-radius: var(--r-box); background: var(--surface); padding: 12px 14px; display: grid; gap: 4px; min-width: 0; }
+.stat .k { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.stat .v { font-family: var(--font-num); font-size: 2rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: 1rem; color: var(--ink-2); font-weight: 500; margin-left: 2px; }
+.stat svg { width: 100%; height: 28px; display: block; }
+.heat-cool { color: var(--accent); } .heat-warm { color: var(--warn); } .heat-hot { color: var(--hot); }
+
+.devlist { display: grid; gap: 0; }
+.dev { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
+.dev:first-child { border-top: 0; padding-top: 0; }
+.dev .n { font-weight: 500; }
+.dev .id { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dev .chip { grid-row: 1 / 3; grid-column: 2; }
+.memory { display: grid; gap: 10px; }
+.bar { height: 10px; border-radius: 5px; background: var(--surface-hi); border: 1px solid var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ink-3); border-radius: 5px; }
+.bar.goal i { background: var(--accent); }
+.memrow { display: grid; gap: 4px; }
+.memrow div:first-child { display: flex; justify-content: space-between; font-size: 13px; }
+
+/* Screens page */
+.scr-grid { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 20px; align-items: start; }
+.pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pickbtn { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-box); padding: 8px 12px 8px 8px; text-align: left; }
+.pickbtn canvas { width: 40px; height: 40px; background: #000; border: 2px solid var(--bezel); }
+.pickbtn.sq canvas { border-radius: 6px; } .pickbtn.rd canvas { border-radius: 50%; }
+.pickbtn b { display: block; font-weight: 600; font-size: 13px; }
+.pickbtn span { font-size: 12px; color: var(--ink-2); }
+.pickbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stage { display: grid; place-items: center; gap: 14px; padding: 26px 16px; }
+.stage canvas { width: min(300px, 70vw); height: min(300px, 70vw); border: 10px solid var(--bezel); background: #000; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.stage canvas.sq { border-radius: 18px; } .stage canvas.rd { border-radius: 50%; }
+.stage .cap { font-size: 12px; color: var(--ink-3); text-align: center; }
+.opts { display: grid; gap: 16px; }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.thumb { width: 64px; height: 64px; border-radius: 8px; border: 2px solid transparent; padding: 0; overflow: hidden; background: none; }
+.thumb canvas { width: 100%; height: 100%; display: block; }
+.thumb[aria-pressed="true"] { border-color: var(--accent); }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); padding: 0; }
+.sw[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.linkrow { display: flex; align-items: center; gap: 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.dropzone { border: 1.5px dashed var(--line); border-radius: var(--r-box); padding: 14px; text-align: center; color: var(--ink-2); font-size: 13px; }
+
+/* Fans page */
+.fan-grid { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 20px; align-items: start; }
+.groups { display: grid; gap: 10px; }
+.group { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-box); padding: 12px 14px; text-align: left; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+.group[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.group b { font-weight: 600; }
+.group .sub { font-size: 12px; color: var(--ink-2); }
+.group .rpm { grid-row: 1 / 3; grid-column: 2; text-align: right; font-family: var(--font-num); font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.group .rpm small { display: block; font-family: var(--font-ui); font-size: 11px; color: var(--ink-2); font-weight: 500; }
+.curve-wrap { overflow-x: auto; }
+svg.curve { width: 100%; min-width: 300px; height: auto; display: block; touch-action: none; }
+.curve .grid line { stroke: var(--line); }
+.curve .axis text { fill: var(--ink-3); font-size: 11px; font-family: var(--font-ui); }
+.curve .area { fill: var(--accent-soft); }
+.curve .ln { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+.curve .pt { fill: var(--surface-hi); stroke: var(--accent); stroke-width: 2.5; cursor: grab; }
+.curve .pt:hover { r: 9; }
+.curve .now line { stroke: var(--warn); stroke-dasharray: 4 4; stroke-width: 1.5; }
+.curve .now text { fill: var(--warn); font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
+.curve .now circle { fill: var(--warn); }
+.curve-foot { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 10px; font-size: 13px; }
+.curve-foot b { font-family: var(--font-num); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+/* Lighting */
+.light-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ledrow { display: grid; gap: 14px; }
+.ledgroup { display: grid; gap: 8px; }
+.ledgroup .lbl { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.leds { display: flex; flex-wrap: wrap; gap: 12px; }
+.ring { width: 64px; height: 64px; }
+
+/* Settings */
+.set-list { display: grid; gap: 0; }
+.set { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.set:first-child { border-top: 0; padding-top: 0; }
+.set .t b { display: block; font-weight: 500; }
+.set .t span { font-size: 12px; color: var(--ink-2); }
+.set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-weight: 500; font-size: 13px; transition: opacity .2s, transform .2s; z-index: 20; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+.note { max-width: 1180px; margin: 14px auto 0; color: var(--ink-3); font-size: 12px; }
+
+@media (max-width: 980px) {
+  .ov-grid, .scr-grid, .fan-grid, .light-grid, .set-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  body { padding-block: 16px 28px; }
+  .window { min-height: 0; }
+  .body { grid-template-columns: minmax(0, 1fr); }
+  nav.side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
+  .navbtn { flex: none; }
+  .navbtn[aria-current="page"]::before { left: 12px; right: 12px; top: auto; bottom: 2px; width: auto; height: 3px; }
+  .side .grow, .side-status { display: none; }
+  main { padding: 18px 14px 24px; }
+  .titlebar .sub { display: none; }
+  .case { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rad" "pump" "front" "inf"; }
+  .front .stack { grid-template-columns: repeat(3, 1fr); }
+  .lcd-rd { width: 76px; height: 76px; }
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fanicon .blades { animation: none; }
+  .toast, .switch::after { transition: none; }
+}
+</style>
+
+<div class="intro">
+  <h1>Vane: mockup of the L-Connect replacement</h1>
+  <p>Click through it. The cooler, pump and fan numbers are the real readings from your PC's test on 21 November. CPU and GPU temperatures are example values that move.</p>
+</div>
+
+<div class="window" id="win">
+  <div class="titlebar">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="11" fill="var(--accent)"/>
+      <g fill="var(--on-accent)">
+        <path d="M12 12 C12 6 15 4 18 5 C17 8 15 11 12 12Z"/>
+        <path d="M12 12 C18 12 20 15 19 18 C16 17 13 15 12 12Z"/>
+        <path d="M12 12 C12 18 9 20 6 19 C7 16 9 13 12 12Z"/>
+        <path d="M12 12 C6 12 4 9 5 6 C8 7 11 9 12 12Z"/>
+      </g>
+      <circle cx="12" cy="12" r="2.2" fill="var(--accent)"/>
+    </svg>
+    <span class="name">Vane</span>
+    <span class="sub">Fans and screens</span>
+    <span class="spacer"></span>
+    <button class="winbtn" aria-label="Minimise to tray"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+    <button class="winbtn" aria-label="Maximise"><svg width="10" height="10" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></button>
+    <button class="winbtn close" aria-label="Close to tray"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+  </div>
+
+  <div class="body">
+    <nav class="side" aria-label="Sections">
+      <button class="navbtn" data-page="overview" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
+      <button class="navbtn" data-page="screens"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="10" height="10" rx="2"/><circle cx="17.5" cy="16.5" r="4"/></svg>Screens</button>
+      <button class="navbtn" data-page="fans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 12c0-4 2-6 4.5-5.5M12 12c4 0 6 2 5.5 4.5M12 12c0 4-2 6-4.5 5.5M12 12c-4 0-6-2-5.5-4.5"/></svg>Fans and pump</button>
+      <button class="navbtn" data-page="lighting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V17h5v-1.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg>Lighting</button>
+      <button class="navbtn" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+      <div class="grow"></div>
+      <div class="side-status">
+        <div><span class="dot"></span>6 of 6 devices connected</div>
+        <div><span class="dot"></span>L-Connect is off</div>
+      </div>
+    </nav>
+
+    <main>
+      <!-- OVERVIEW -->
+      <section class="page on" id="p-overview">
+        <div class="page-head">
+          <div><h2>Overview</h2><p>Everything Vane controls, live.</p></div>
+          <span class="chip ok"><span class="dot"></span>All screens updating</span>
+        </div>
+        <div class="ov-grid">
+          <div class="case">
+            <span class="case-label">Inside your PC</span>
+            <button class="part rad" data-go="fans" data-group="rad">
+              <span class="lbl"><span>Radiator fans · HydroShift II</span><span class="num" id="ov-rad-avg">1464 rpm</span></span>
+              <div class="fans" id="ov-rad"></div>
+            </button>
+            <button class="part pump" data-go="screens" data-screen="cooler">
+              <span class="lbl"><span>Cooler screen and pump</span><span>480 × 480</span></span>
+              <canvas class="lcd-sq" id="ov-cooler" width="240" height="240"></canvas>
+              <div style="display:grid;gap:12px">
+                <div class="readout"><b id="ov-coolant">32 °C</b><span>Coolant</span></div>
+                <div class="readout"><b id="ov-pump">2870</b><span>Pump rpm</span></div>
+              </div>
+            </button>
+            <button class="part front" data-go="screens" data-screen="fan1">
+              <span class="lbl"><span>LCD fans</span></span>
+              <div class="stack">
+                <canvas class="lcd-rd" id="ov-fan1" width="200" height="200"></canvas>
+                <canvas class="lcd-rd" id="ov-fan2" width="200" height="200"></canvas>
+                <canvas class="lcd-rd" id="ov-fan3" width="200" height="200"></canvas>
+              </div>
+              <span class="small muted num" id="ov-lcdfans" style="text-align:center">868 rpm each</span>
+            </button>
+            <button class="part inf" data-go="fans" data-group="inf">
+              <span class="lbl"><span>SL Infinity fan</span><span class="num" id="ov-inf">1409 rpm</span></span>
+              <svg class="fanicon" style="max-width:52px" viewBox="0 0 40 40" id="ov-inf-icon"></svg>
+              <span class="small muted">Wireless. Speed and lighting only, no screen.</span>
+            </button>
+          </div>
+
+          <div style="display:grid;gap:20px">
+            <div class="stats">
+              <div class="stat"><span class="k">CPU temperature</span><span class="v" id="st-cpu">54<small>°C</small></span><svg id="sp-cpu" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>
+              <div class="stat"><span class="k">GPU temperature</span><span class="v" id="st-gpu">47<small>°C</small></span><svg id="sp-gpu" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>
+              <div class="stat"><span class="k">Coolant</span><span class="v" id="st-coolant">32<small>°C</small></span><svg id="sp-coolant" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>
+              <div class="stat"><span class="k">Pump</span><span class="v" id="st-pump">2870<small>rpm</small></span><svg id="sp-pump" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>
+            </div>
+            <div class="box">
+              <h3>Memory use</h3>
+              <div class="memory">
+                <div class="memrow"><div><span>L-Connect 3 (measured on your PC)</span><span class="num">480 MB</span></div><div class="bar"><i style="width:100%"></i></div></div>
+                <div class="memrow"><div><span>Vane (goal)</span><span class="num">under 60 MB</span></div><div class="bar goal"><i style="width:12%"></i></div></div>
+              </div>
+            </div>
+            <div class="box">
+              <h3>Connected devices</h3>
+              <div class="devlist">
+                <div class="dev"><span class="n">HydroShift II LCD-S cooler</span><span class="id">USB 1CBE:A034 · firmware 0001_0027</span><span class="chip ok">Connected</span></div>
+                <div class="dev"><span class="n">LCD fan 1</span><span class="id">USB 1CBE:0005 · 26bcd6c0</span><span class="chip ok">Connected</span></div>
+                <div class="dev"><span class="n">LCD fan 2</span><span class="id">USB 1CBE:0005 · c6e1dfc3</span><span class="chip ok">Connected</span></div>
+                <div class="dev"><span class="n">LCD fan 3</span><span class="id">USB 1CBE:0005 · 382134c1</span><span class="chip ok">Connected</span></div>
+                <div class="dev"><span class="n">Wireless dongle</span><span class="id">USB 0416:8040 + 8041 · 3 fan groups</span><span class="chip ok">Connected</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREENS -->
+      <section class="page" id="p-screens">
+        <div class="page-head">
+          <div><h2>Screens</h2><p>Choose what each screen shows.</p></div>
+        </div>
+        <div class="pick" id="pick"></div>
+        <div class="scr-grid">
+          <div class="box stage">
+            <canvas id="stage" width="480" height="480" class="sq"></canvas>
+            <div class="cap" id="stage-cap">Cooler screen · 480 × 480 · preview</div>
+          </div>
+          <div class="box opts">
+            <div class="field">
+              <span>Show</span>
+              <div class="seg" id="seg-type">
+                <button data-v="gauge">Sensor</button><button data-v="clock">Clock</button><button data-v="image">Picture</button><button data-v="video">Video</button><button data-v="color">Colour</button>
+              </div>
+            </div>
+            <div id="o-gauge" class="opts">
+              <div class="row2">
+                <label class="field"><span>Sensor</span>
+                  <select id="sel-sensor"><option value="cpu">CPU temperature</option><option value="gpu">GPU temperature</option><option value="coolant">Coolant temperature</option><option value="cpuload">CPU load</option><option value="gpuload">GPU load</option><option value="pump">Pump speed</option></select>
+                </label>
+                <div class="field"><span>Style</span>
+                  <div class="seg" id="seg-style"><button data-v="ring">Ring</button><button data-v="big">Big number</button><button data-v="dual">CPU + GPU</button></div>
+                </div>
+              </div>
+              <div class="field"><span>Colour</span><div class="swatches" id="sw-gauge"></div></div>
+            </div>
+            <div id="o-clock" class="opts" hidden>
+              <div class="field"><span>Clock style</span><div class="seg" id="seg-clock"><button data-v="digital">Digital</button><button data-v="analog">Hands</button></div></div>
+              <div class="field"><span>Colour</span><div class="swatches" id="sw-clock"></div></div>
+            </div>
+            <div id="o-image" class="opts" hidden>
+              <div class="field"><span>Picture</span><div class="thumbs" id="thumbs"></div></div>
+              <div class="dropzone">Drop a picture or GIF here, or <button class="btn" style="padding:3px 10px">Browse…</button><br><span class="small">Cropped to fit the screen automatically.</span></div>
+            </div>
+            <div id="o-video" class="opts" hidden>
+              <div class="field"><span>Video</span><div class="thumbs" id="vthumbs"></div></div>
+              <div class="dropzone">Drop an MP4 here, or <button class="btn" style="padding:3px 10px">Browse…</button><br><span class="small">Converted once, then plays from the screen's own memory.</span></div>
+            </div>
+            <div id="o-color" class="opts" hidden>
+              <div class="field"><span>Colour</span><div class="swatches" id="sw-solid"></div></div>
+            </div>
+            <div class="row2">
+              <label class="field"><span>Brightness <b class="num" id="v-bright">80%</b></span><input type="range" id="r-bright" min="0" max="100" value="80"></label>
+              <div class="field"><span>Rotation</span><div class="seg" id="seg-rot"><button data-v="0">0°</button><button data-v="90">90°</button><button data-v="180">180°</button><button data-v="270">270°</button></div></div>
+            </div>
+            <div class="linkrow" id="linkrow">
+              <button class="switch" role="switch" aria-checked="false" id="sw-link" aria-label="Same picture on all LCD fans"></button>
+              <span>Same on all three LCD fans</span>
+            </div>
+            <div class="actions">
+              <button class="btn" id="btn-revert">Undo changes</button>
+              <button class="btn primary" id="btn-apply">Send to screen</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FANS -->
+      <section class="page" id="p-fans">
+        <div class="page-head">
+          <div><h2>Fans and pump</h2><p>Drag the points to shape a speed curve.</p></div>
+          <div class="seg" id="seg-preset"><button data-v="quiet">Quiet</button><button data-v="balanced">Balanced</button><button data-v="perf">Performance</button><button data-v="full">Full speed</button></div>
+        </div>
+        <div class="fan-grid">
+          <div class="groups" id="groups"></div>
+          <div class="box">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px">
+              <h3 style="margin:0" id="curve-title">Radiator fans</h3>
+              <label class="field" style="grid-auto-flow:column;align-items:center;gap:8px"><span>Follows</span>
+                <select id="sel-follow"><option value="cpu">CPU temperature</option><option value="gpu">GPU temperature</option><option value="coolant">Coolant temperature</option><option value="max">Hottest of CPU and GPU</option></select>
+              </label>
+            </div>
+            <div class="curve-wrap">
+              <svg class="curve" id="curve" viewBox="0 0 520 300"></svg>
+            </div>
+            <div class="curve-foot">
+              <span>Now <b id="cf-temp">54 °C</b></span>
+              <span>Target <b id="cf-pct">48%</b></span>
+              <span>About <b id="cf-rpm">1460 rpm</b></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIGHTING -->
+      <section class="page" id="p-lighting">
+        <div class="page-head">
+          <div><h2>Lighting</h2><p>Fan and cooler LEDs. Screens are set under Screens.</p></div>
+          <div class="linkrow"><button class="switch" role="switch" aria-checked="true" id="sw-sync" aria-label="Same effect everywhere"></button><span>Same effect everywhere</span></div>
+        </div>
+        <div class="light-grid">
+          <div class="box">
+            <h3>Preview</h3>
+            <div class="ledrow" id="ledrow"></div>
+          </div>
+          <div class="box opts">
+            <div class="field"><span>Effect</span>
+              <div class="seg" id="seg-fx"><button data-v="static">Static</button><button data-v="breathe">Breathing</button><button data-v="rainbow">Rainbow</button><button data-v="temp">Follows temperature</button><button data-v="off">Off</button></div>
+            </div>
+            <div class="field" id="fx-colour"><span>Colour</span><div class="swatches" id="sw-led"></div></div>
+            <label class="field"><span>Brightness <b class="num" id="v-ledb">70%</b></span><input type="range" id="r-ledb" min="0" max="100" value="70"></label>
+            <label class="field"><span>Speed <b class="num" id="v-leds">50%</b></span><input type="range" id="r-leds" min="0" max="100" value="50"></label>
+            <div class="actions"><button class="btn primary" data-toast="Lighting sent to all fans">Send to fans</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" id="p-settings">
+        <div class="page-head"><div><h2>Settings</h2><p>Vane runs from the tray and keeps working with the window closed.</p></div></div>
+        <div class="set-grid">
+          <div class="box">
+            <h3>App</h3>
+            <div class="set-list">
+              <div class="set"><div class="t"><b>Theme</b><span>Follows Windows unless you pick one.</span></div>
+                <div class="seg" id="seg-theme"><button data-v="system" aria-pressed="true">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+              <div class="set"><div class="t"><b>Start with Windows</b><span>Opens in the tray at sign-in.</span></div><button class="switch" role="switch" aria-checked="true" aria-label="Start with Windows"></button></div>
+              <div class="set"><div class="t"><b>Close button hides to tray</b><span>Screens and fan curves keep running.</span></div><button class="switch" role="switch" aria-checked="true" aria-label="Close to tray"></button></div>
+              <div class="set"><div class="t"><b>Sensor update speed</b><span>Faster costs a little more CPU.</span></div>
+                <select aria-label="Sensor update speed"><option>Every 0.5 s</option><option selected>Every 1 s</option><option>Every 2 s</option></select></div>
+              <div class="set"><div class="t"><b>Screens when the PC sleeps</b></div>
+                <select aria-label="Screens when the PC sleeps"><option selected>Turn off</option><option>Show the clock</option><option>Keep showing</option></select></div>
+            </div>
+          </div>
+          <div class="box">
+            <h3>L-Connect 3</h3>
+            <div class="set-list">
+              <div class="set"><div class="t"><b id="lc-state">L-Connect is off</b><span id="lc-sub">Its service and startup task are disabled, so Vane has the devices to itself.</span></div><span class="chip ok" id="lc-chip">Off</span></div>
+              <div class="set"><div class="t"><b>Turn L-Connect back on</b><span>Restores its service and startup task. Vane lets go of the devices first.</span></div><button class="btn" id="btn-lc">Turn on</button></div>
+            </div>
+            <h3 style="margin-top:18px">About</h3>
+            <div class="set-list">
+              <div class="set"><div class="t"><b>Vane 0.1 (mockup)</b><span>Fan, screen and lighting protocols from the open-source lian-li-linux project (MIT).</span></div></div>
+              <div class="set"><div class="t"><b>Never goes online</b><span>No account, no telemetry, no update checks unless you ask.</span></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<p class="note">Mockup only. Buttons show what would happen; nothing here talks to your PC.</p>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- live sensors (example CPU/GPU; real cooler numbers from the probe) ---------- */
+  const S = { cpu: 54, gpu: 47, coolant: 32, cpuload: 18, gpuload: 9, pump: 2870,
+              rad: [1464, 1469, 1459], lcdfans: 868, inf: 1409 };
+  const hist = { cpu: [], gpu: [], coolant: [], pump: [] };
+  let t0 = performance.now();
+  function tick() {
+    const t = (performance.now() - t0) / 1000;
+    S.cpu = 54 + 6 * Math.sin(t / 7) + 2 * Math.sin(t / 1.9);
+    S.gpu = 47 + 5 * Math.sin(t / 11 + 1) + 1.5 * Math.sin(t / 2.3);
+    S.coolant = 32 + 0.4 * Math.sin(t / 30);
+    S.cpuload = 18 + 12 * Math.max(0, Math.sin(t / 5));
+    S.gpuload = 9 + 20 * Math.max(0, Math.sin(t / 9 + 2));
+    S.pump = 2870 + Math.round(6 * Math.sin(t / 3));
+    S.rad = [1464, 1469, 1459].map((r, i) => r + Math.round(5 * Math.sin(t / 2 + i)));
+    for (const k in hist) { hist[k].push(S[k]); if (hist[k].length > 60) hist[k].shift(); }
+  }
+  for (let i = 0; i < 60; i++) { t0 -= 1000; tick(); }
+  t0 = performance.now() - 60000;
+
+  const heatClass = (c) => c < 55 ? 'heat-cool' : c < 75 ? 'heat-warm' : 'heat-hot';
+  function spark(svg, arr, col) {
+    const min = Math.min(...arr), max = Math.max(...arr), span = Math.max(max - min, 1);
+    const pts = arr.map((v, i) => [i * (120 / (arr.length - 1)), 25 - ((v - min) / span) * 20]);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const last = pts[pts.length - 1];
+    svg.innerHTML = `<path d="${d} L120 28 L0 28Z" fill="${col}" opacity=".12"/><path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="2.4" fill="${col}"/>`;
+  }
+
+  /* ---------- fan icons ---------- */
+  function fanSvg(svg, rpm) {
+    svg.innerHTML = `<circle cx="20" cy="20" r="18.5" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+      <g class="blades" style="animation-duration:${(60 / Math.max(rpm, 1) * 40).toFixed(2)}s">
+      ${[0, 72, 144, 216, 288].map(a => `<path transform="rotate(${a} 20 20)" d="M20 20 C20 12 24 7 28 8 C27 13 24 18 20 20Z" fill="var(--ink-3)" opacity=".75"/>`).join('')}
+      </g><circle cx="20" cy="20" r="4" fill="var(--accent)"/>`;
+  }
+  const radWrap = $('#ov-rad');
+  S.rad.forEach((r, i) => {
+    const d = document.createElement('div');
+    d.innerHTML = `<svg class="fanicon" viewBox="0 0 40 40"></svg><div class="fan-rpm num" id="ov-rad-${i}">${r}</div>`;
+    radWrap.appendChild(d); fanSvg(d.firstChild, r);
+  });
+  fanSvg($('#ov-inf-icon'), S.inf);
+
+  /* ---------- screen renderer (draws what the physical LCD would show) ---------- */
+  const PAL = ['#2cc4bc', '#4f9dff', '#b07cff', '#ff6fa8', '#ffb347', '#e8f0f5'];
+  const IMGS = ['Aurora', 'Carbon', 'Dusk', 'Coolant'];
+  const VIDS = ['Waves', 'Particles', 'Tunnel'];
+  const screens = {
+    cooler: { name: 'Cooler screen', shape: 'sq', size: 480, type: 'gauge', sensor: 'cpu', style: 'ring', color: PAL[0], clock: 'digital', img: 0, vid: 0, solid: PAL[1], bright: 80, rot: 0 },
+    fan1: { name: 'LCD fan 1', shape: 'rd', size: 400, type: 'gauge', sensor: 'gpu', style: 'big', color: PAL[1], clock: 'digital', img: 0, vid: 0, solid: PAL[1], bright: 80, rot: 0 },
+    fan2: { name: 'LCD fan 2', shape: 'rd', size: 400, type: 'clock', sensor: 'cpu', style: 'ring', color: PAL[5], clock: 'analog', img: 0, vid: 0, solid: PAL[1], bright: 80, rot: 0 },
+    fan3: { name: 'LCD fan 3', shape: 'rd', size: 400, type: 'image', sensor: 'cpu', style: 'ring', color: PAL[0], clock: 'digital', img: 0, vid: 1, solid: PAL[1], bright: 80, rot: 0 },
+  };
+  const SENS = {
+    cpu: { label: 'CPU', unit: '°C', max: 100, fmt: v => Math.round(v) },
+    gpu: { label: 'GPU', unit: '°C', max: 100, fmt: v => Math.round(v) },
+    coolant: { label: 'COOLANT', unit: '°C', max: 60, fmt: v => v.toFixed(1) },
+    cpuload: { label: 'CPU LOAD', unit: '%', max: 100, fmt: v => Math.round(v) },
+    gpuload: { label: 'GPU LOAD', unit: '%', max: 100, fmt: v => Math.round(v) },
+    pump: { label: 'PUMP', unit: 'rpm', max: 3500, fmt: v => Math.round(v) },
+  };
+
+  function art(ctx, s, idx, t) {
+    const g = ctx.createLinearGradient(0, 0, s, s);
+    if (idx === 0) { g.addColorStop(0, '#0b2b3a'); g.addColorStop(.5, '#0f6b6a'); g.addColorStop(1, '#5d2a8a'); }
+    if (idx === 1) { g.addColorStop(0, '#1b1f24'); g.addColorStop(1, '#3a4049'); }
+    if (idx === 2) { g.addColorStop(0, '#2b1a4a'); g.addColorStop(.6, '#c2456b'); g.addColorStop(1, '#f2a65a'); }
+    if (idx === 3) { g.addColorStop(0, '#032a2e'); g.addColorStop(1, '#2cc4bc'); }
+    ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+    if (idx === 0) { for (let i = 0; i < 3; i++) { ctx.strokeStyle = `rgba(150,255,230,${.25 - i * .06})`; ctx.lineWidth = s * .05; ctx.beginPath();
+      for (let x = 0; x <= s; x += s / 40) ctx.lineTo(x, s * (.35 + i * .12) + Math.sin(x / s * 6 + t * .6 + i) * s * .05); ctx.stroke(); } }
+    if (idx === 1) { ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = s / 60; for (let i = -s; i < s * 2; i += s / 18) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + s, s); ctx.stroke(); }
+      ctx.fillStyle = '#e8f0f5'; ctx.font = `600 ${s * .13}px "Barlow Semi Condensed", sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VANE', s / 2, s / 2); }
+    if (idx === 2) { ctx.fillStyle = 'rgba(255,230,180,.9)'; ctx.beginPath(); ctx.arc(s * .5, s * .62, s * .16, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1a1030'; ctx.fillRect(0, s * .66, s, s); }
+    if (idx === 3) { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = s * .012; for (let r = 1; r < 8; r++) { ctx.beginPath(); ctx.arc(s / 2, s / 2, ((r * s * .08 + t * s * .04) % (s * .64)), 0, 7); ctx.stroke(); } }
+  }
+  function video(ctx, s, idx, t) {
+    ctx.fillStyle = '#05080b'; ctx.fillRect(0, 0, s, s);
+    if (idx === 0) { for (let i = 0; i < 6; i++) { ctx.strokeStyle = `hsla(${180 + i * 12},80%,60%,.7)`; ctx.lineWidth = s * .012; ctx.beginPath();
+      for (let x = 0; x <= s; x += s / 50) ctx.lineTo(x, s / 2 + Math.sin(x / s * 8 + t * 2 + i * .7) * s * (.08 + i * .03)); ctx.stroke(); } }
+    if (idx === 1) { for (let i = 0; i < 70; i++) { const a = i * 2.39996 + t * .3, r = ((i * 7 + t * 40) % 100) / 100 * s * .5;
+      ctx.fillStyle = `hsla(${170 + i * 2},90%,65%,${1 - r / (s * .5)})`; ctx.beginPath(); ctx.arc(s / 2 + Math.cos(a) * r, s / 2 + Math.sin(a) * r, s * .012, 0, 7); ctx.fill(); } }
+    if (idx === 2) { for (let i = 12; i > 0; i--) { const k = ((i + t * 2) % 12) / 12; ctx.strokeStyle = `hsla(${200 + i * 10},80%,60%,${k})`; ctx.lineWidth = s * .01;
+      const w = s * k; ctx.strokeRect(s / 2 - w / 2, s / 2 - w / 2, w, w); } }
+  }
+  function ring(ctx, s, frac, col, lw) {
+    ctx.lineCap = 'round'; ctx.lineWidth = lw;
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.beginPath(); ctx.arc(s / 2, s / 2, s * .38, Math.PI * .75, Math.PI * 2.25); ctx.stroke();
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(s / 2, s / 2, s * .38, Math.PI * .75, Math.PI * (.75 + 1.5 * Math.min(1, Math.max(0, frac)))); ctx.stroke();
+  }
+  function drawScreen(cv, sc, t) {
+    const ctx = cv.getContext('2d'), s = cv.width;
+    ctx.save(); ctx.clearRect(0, 0, s, s);
+    ctx.translate(s / 2, s / 2); ctx.rotate(sc.rot * Math.PI / 180); ctx.translate(-s / 2, -s / 2);
+    ctx.fillStyle = '#05080b'; ctx.fillRect(0, 0, s, s);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const F = (w, px) => `${w} ${px}px "Barlow Semi Condensed", "Bahnschrift", sans-serif`;
+    if (sc.type === 'gauge') {
+      const m = SENS[sc.sensor], v = S[sc.sensor];
+      if (sc.style === 'ring') {
+        ring(ctx, s, v / m.max, sc.color, s * .06);
+        ctx.fillStyle = '#f2f6f8'; ctx.font = F(600, s * .22); ctx.fillText(m.fmt(v), s / 2, s * .49);
+        ctx.fillStyle = 'rgba(242,246,248,.6)'; ctx.font = F(500, s * .065); ctx.fillText(m.label + '  ' + m.unit, s / 2, s * .66);
+      } else if (sc.style === 'big') {
+        ctx.fillStyle = sc.color; ctx.font = F(600, s * .34); ctx.fillText(m.fmt(v), s / 2, s * .47);
+        ctx.fillStyle = 'rgba(242,246,248,.65)'; ctx.font = F(500, s * .075); ctx.fillText(m.label + '  ' + m.unit, s / 2, s * .72);
+      } else {
+        [['cpu', .3], ['gpu', .7]].forEach(([k, y]) => {
+          const mm = SENS[k]; ctx.fillStyle = 'rgba(242,246,248,.55)'; ctx.font = F(500, s * .06); ctx.fillText(mm.label, s / 2, s * (y - .12));
+          ctx.fillStyle = k === 'cpu' ? sc.color : '#f2f6f8'; ctx.font = F(600, s * .17); ctx.fillText(mm.fmt(S[k]) + '°', s / 2, s * (y + .02));
+        });
+        ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = s * .006; ctx.beginPath(); ctx.moveTo(s * .3, s / 2); ctx.lineTo(s * .7, s / 2); ctx.stroke();
+      }
+    } else if (sc.type === 'clock') {
+      const d = new Date();
+      if (sc.clock === 'digital') {
+        ctx.fillStyle = sc.color; ctx.font = F(600, s * .25);
+        ctx.fillText(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }), s / 2, s * .47);
+        ctx.fillStyle = 'rgba(242,246,248,.6)'; ctx.font = F(500, s * .07);
+        ctx.fillText(d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(), s / 2, s * .66);
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = s * .012;
+        for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; ctx.beginPath(); ctx.moveTo(s / 2 + Math.cos(a) * s * .36, s / 2 + Math.sin(a) * s * .36); ctx.lineTo(s / 2 + Math.cos(a) * s * .41, s / 2 + Math.sin(a) * s * .41); ctx.stroke(); }
+        const hand = (frac, len, w, col) => { const a = frac * Math.PI * 2 - Math.PI / 2; ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(s / 2, s / 2); ctx.lineTo(s / 2 + Math.cos(a) * len, s / 2 + Math.sin(a) * len); ctx.stroke(); };
+        const h = d.getHours() % 12, mi = d.getMinutes(), se = d.getSeconds() + d.getMilliseconds() / 1000;
+        hand((h + mi / 60) / 12, s * .2, s * .03, '#f2f6f8'); hand((mi + se / 60) / 60, s * .3, s * .02, '#f2f6f8'); hand(se / 60, s * .33, s * .008, sc.color);
+        ctx.fillStyle = sc.color; ctx.beginPath(); ctx.arc(s / 2, s / 2, s * .02, 0, 7); ctx.fill();
+      }
+    } else if (sc.type === 'image') { art(ctx, s, sc.img, t); }
+    else if (sc.type === 'video') { video(ctx, s, sc.vid, t); }
+    else { ctx.fillStyle = sc.solid; ctx.fillRect(0, 0, s, s); }
+    ctx.restore();
+    if (sc.bright < 100) { ctx.fillStyle = `rgba(0,0,0,${(1 - sc.bright / 100) * .85})`; ctx.fillRect(0, 0, s, s); }
+  }
+
+  /* ---------- navigation ---------- */
+  let page = 'overview';
+  function go(p) {
+    page = p;
+    $$('.navbtn').forEach(b => b.toggleAttribute('aria-current', false));
+    $(`.navbtn[data-page="${p}"]`).setAttribute('aria-current', 'page');
+    $$('.page').forEach(s => s.classList.toggle('on', s.id === 'p-' + p));
+    try { localStorage.setItem('vane-page', p); } catch (e) {}
+  }
+  $$('.navbtn').forEach(b => b.addEventListener('click', () => go(b.dataset.page)));
+  $$('[data-go]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.screen) selectScreen(b.dataset.screen);
+    if (b.dataset.group) selectGroup(b.dataset.group);
+    go(b.dataset.go);
+  }));
+  try { const p = localStorage.getItem('vane-page'); if (p && $('#p-' + p)) go(p); } catch (e) {}
+
+  const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2200); };
+  $$('[data-toast]').forEach(b => b.addEventListener('click', () => toast(b.dataset.toast)));
+  $$('.switch').forEach(sw => sw.addEventListener('click', () => sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true')));
+
+  function seg(el, value, onChange) {
+    const set = (v) => $$('button', el).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === String(v)));
+    set(value);
+    el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.v); onChange && onChange(b.dataset.v); });
+    return set;
+  }
+  function swatches(el, list, value, onChange) {
+    el.innerHTML = list.map(c => `<button class="sw" style="background:${c}" data-c="${c}" aria-label="Colour ${c}"></button>`).join('');
+    const set = (v) => $$('.sw', el).forEach(b => b.setAttribute('aria-pressed', b.dataset.c === v));
+    set(value);
+    el.addEventListener('click', (e) => { const b = e.target.closest('.sw'); if (!b) return; set(b.dataset.c); onChange(b.dataset.c); });
+    return set;
+  }
+
+  /* ---------- screens page ---------- */
+  let cur = 'cooler';
+  const saved = JSON.parse(JSON.stringify(screens));
+  const pick = $('#pick');
+  pick.innerHTML = Object.entries(screens).map(([k, s]) =>
+    `<button class="pickbtn ${s.shape}" data-k="${k}"><canvas width="80" height="80"></canvas><div><b>${s.name}</b><span>${s.size} × ${s.size}</span></div></button>`).join('');
+  pick.addEventListener('click', (e) => { const b = e.target.closest('.pickbtn'); if (b) selectScreen(b.dataset.k); });
+  const linked = () => $('#sw-link').getAttribute('aria-checked') === 'true';
+  function targets() { return (cur !== 'cooler' && linked()) ? ['fan1', 'fan2', 'fan3'] : [cur]; }
+  function update(fn) { targets().forEach(k => fn(screens[k])); syncControls(); }
+
+  const setType = seg($('#seg-type'), 'gauge', v => update(s => s.type = v));
+  const setStyle = seg($('#seg-style'), 'ring', v => update(s => s.style = v));
+  const setClock = seg($('#seg-clock'), 'digital', v => update(s => s.clock = v));
+  const setRot = seg($('#seg-rot'), 0, v => update(s => s.rot = +v));
+  const setSwG = swatches($('#sw-gauge'), PAL, PAL[0], c => update(s => s.color = c));
+  const setSwC = swatches($('#sw-clock'), PAL, PAL[0], c => update(s => s.color = c));
+  const setSwS = swatches($('#sw-solid'), PAL, PAL[1], c => update(s => s.solid = c));
+  $('#sel-sensor').addEventListener('change', e => update(s => s.sensor = e.target.value));
+  $('#r-bright').addEventListener('input', e => update(s => s.bright = +e.target.value));
+  $('#sw-link').addEventListener('click', () => { if (linked()) { const src = screens[cur]; ['fan1', 'fan2', 'fan3'].forEach(k => Object.assign(screens[k], { ...src, name: screens[k].name })); } });
+
+  function thumbs(el, list, kind) {
+    el.innerHTML = list.map((n, i) => `<button class="thumb" data-i="${i}" aria-label="${n}"><canvas width="64" height="64"></canvas></button>`).join('');
+    el.addEventListener('click', (e) => { const b = e.target.closest('.thumb'); if (!b) return; update(s => s[kind] = +b.dataset.i); });
+  }
+  thumbs($('#thumbs'), IMGS, 'img'); thumbs($('#vthumbs'), VIDS, 'vid');
+
+  function syncControls() {
+    const s = screens[cur];
+    setType(s.type); setStyle(s.style); setClock(s.clock); setRot(s.rot); setSwG(s.color); setSwC(s.color); setSwS(s.solid);
+    $('#sel-sensor').value = s.sensor; $('#r-bright').value = s.bright; $('#v-bright').textContent = s.bright + '%';
+    ['gauge', 'clock', 'image', 'video', 'color'].forEach(k => $('#o-' + k).hidden = s.type !== k);
+    $$('#thumbs .thumb').forEach(b => b.setAttribute('aria-pressed', +b.dataset.i === s.img));
+    $$('#vthumbs .thumb').forEach(b => b.setAttribute('aria-pressed', +b.dataset.i === s.vid));
+    const st = $('#stage'); st.width = st.height = s.size; st.className = s.shape;
+    $('#stage-cap').textContent = `${s.name} · ${s.size} × ${s.size} · preview`;
+    $('#linkrow').style.visibility = cur === 'cooler' ? 'hidden' : 'visible';
+    $$('.pickbtn').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === cur || (linked() && cur !== 'cooler' && b.dataset.k !== 'cooler')));
+  }
+  function selectScreen(k) { cur = k; syncControls(); }
+  $('#btn-apply').addEventListener('click', () => {
+    const t = targets(); t.forEach(k => saved[k] = JSON.parse(JSON.stringify(screens[k])));
+    toast(t.length > 1 ? 'Sent to all three LCD fans' : 'Sent to ' + screens[cur].name.toLowerCase().replace(/^lcd/, 'LCD'));
+  });
+  $('#btn-revert').addEventListener('click', () => { targets().forEach(k => Object.assign(screens[k], JSON.parse(JSON.stringify(saved[k])))); syncControls(); toast('Changes undone'); });
+  syncControls();
+
+  /* ---------- fans page ---------- */
+  const GROUPS = {
+    rad: { name: 'Radiator fans', sub: 'HydroShift II · 3 fans', rpm: () => Math.round((S.rad[0] + S.rad[1] + S.rad[2]) / 3), max: 2100, follow: 'cpu', pts: [[30, 25], [45, 35], [60, 55], [75, 80], [90, 100]] },
+    pump: { name: 'Pump', sub: 'HydroShift II', rpm: () => S.pump, max: 3200, follow: 'coolant', pts: [[25, 70], [30, 80], [35, 90], [40, 100], [50, 100]] },
+    lcd: { name: 'LCD fans', sub: 'SL V3 wireless · 3 fans', rpm: () => S.lcdfans, max: 2100, follow: 'gpu', pts: [[30, 20], [45, 30], [60, 45], [75, 70], [90, 100]] },
+    inf: { name: 'SL Infinity fan', sub: 'Wireless · 1 fan', rpm: () => S.inf, max: 2100, follow: 'cpu', pts: [[30, 30], [45, 45], [60, 60], [75, 85], [90, 100]] },
+  };
+  const PRESETS = {
+    quiet: [[30, 20], [45, 25], [60, 40], [75, 60], [90, 90]],
+    balanced: [[30, 25], [45, 35], [60, 55], [75, 80], [90, 100]],
+    perf: [[30, 40], [45, 55], [60, 75], [75, 95], [90, 100]],
+    full: [[30, 100], [45, 100], [60, 100], [75, 100], [90, 100]],
+  };
+  let gsel = 'rad';
+  const groupsEl = $('#groups');
+  groupsEl.innerHTML = Object.entries(GROUPS).map(([k, g]) =>
+    `<button class="group" data-k="${k}"><b>${g.name}</b><span class="rpm" id="g-${k}">${g.rpm()}<small>rpm</small></span><span class="sub">${g.sub}</span></button>`).join('');
+  groupsEl.addEventListener('click', (e) => { const b = e.target.closest('.group'); if (b) selectGroup(b.dataset.k); });
+  const setPreset = seg($('#seg-preset'), 'balanced', v => { GROUPS[gsel].pts = PRESETS[v].map(p => [...p]); drawCurve(); toast(`${GROUPS[gsel].name}: ${v === 'perf' ? 'performance' : v === 'full' ? 'full speed' : v}`); });
+  $('#sel-follow').addEventListener('change', e => { GROUPS[gsel].follow = e.target.value; drawCurve(); });
+
+  const CW = 520, CH = 300, PL = 44, PR = 16, PT = 14, PB = 34;
+  const X = t => PL + (t - 20) / 80 * (CW - PL - PR);
+  const Y = p => PT + (1 - p / 100) * (CH - PT - PB);
+  const invX = x => 20 + (x - PL) / (CW - PL - PR) * 80;
+  const invY = y => (1 - (y - PT) / (CH - PT - PB)) * 100;
+  function pctAt(pts, t) {
+    if (t <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) if (t <= pts[i][0]) { const [a, b] = [pts[i - 1], pts[i]]; return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]); }
+    return pts[pts.length - 1][1];
+  }
+  const followVal = f => f === 'max' ? Math.max(S.cpu, S.gpu) : S[f];
+  function drawCurve() {
+    const g = GROUPS[gsel], svg = $('#curve');
+    let grid = '', axis = '';
+    for (let t = 20; t <= 100; t += 10) { grid += `<line x1="${X(t)}" y1="${PT}" x2="${X(t)}" y2="${CH - PB}"/>`; axis += `<text x="${X(t)}" y="${CH - 12}" text-anchor="middle">${t}°</text>`; }
+    for (let p = 0; p <= 100; p += 25) { grid += `<line x1="${PL}" y1="${Y(p)}" x2="${CW - PR}" y2="${Y(p)}"/>`; axis += `<text x="${PL - 8}" y="${Y(p) + 4}" text-anchor="end">${p}%</text>`; }
+    const P = [[20, g.pts[0][1]], ...g.pts, [100, g.pts[g.pts.length - 1][1]]];
+    const d = P.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' ');
+    const tv = followVal(g.follow), pc = pctAt(g.pts, tv);
+    svg.innerHTML = `<g class="grid">${grid}</g><g class="axis">${axis}</g>
+      <path class="area" d="${d} L${X(100)} ${Y(0)} L${X(20)} ${Y(0)}Z"/><path class="ln" d="${d}"/>
+      <g class="now"><line x1="${X(tv)}" y1="${PT}" x2="${X(tv)}" y2="${CH - PB}"/><circle cx="${X(tv)}" cy="${Y(pc)}" r="4"/>
+      <text x="${Math.min(X(tv) + 6, CW - 70)}" y="${PT + 12}">now ${Math.round(tv)}°</text></g>
+      ${g.pts.map((p, i) => `<circle class="pt" data-i="${i}" cx="${X(p[0])}" cy="${Y(p[1])}" r="7"><title>${p[0]}° → ${Math.round(p[1])}%</title></circle>`).join('')}`;
+    $('#curve-title').textContent = g.name; $('#sel-follow').value = g.follow;
+    $('#cf-temp').textContent = (g.follow === 'coolant' ? tv.toFixed(1) : Math.round(tv)) + ' °C';
+    $('#cf-pct').textContent = Math.round(pc) + '%';
+    $('#cf-rpm').textContent = Math.round(g.max * pc / 100 / 10) * 10 + ' rpm';
+  }
+  let drag = null;
+  $('#curve').addEventListener('pointerdown', (e) => { const c = e.target.closest('.pt'); if (!c) return; drag = +c.dataset.i; e.target.ownerSVGElement.setPointerCapture(e.pointerId); });
+  $('#curve').addEventListener('pointermove', (e) => {
+    if (drag === null) return;
+    const svg = $('#curve'), r = svg.getBoundingClientRect(), x = (e.clientX - r.left) * CW / r.width, y = (e.clientY - r.top) * CH / r.height;
+    const pts = GROUPS[gsel].pts, lo = drag ? pts[drag - 1][0] + 3 : 20, hi = drag < pts.length - 1 ? pts[drag + 1][0] - 3 : 100;
+    pts[drag] = [Math.round(Math.min(hi, Math.max(lo, invX(x)))), Math.round(Math.min(100, Math.max(0, invY(y))))];
+    setPreset(''); drawCurve();
+  });
+  const endDrag = () => { if (drag !== null) { drag = null; toast(GROUPS[gsel].name + ' curve saved'); } };
+  $('#curve').addEventListener('pointerup', endDrag); $('#curve').addEventListener('pointercancel', endDrag);
+  function selectGroup(k) { gsel = k; $$('.group').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === k)); setPreset(''); drawCurve(); }
+  selectGroup('rad');
+
+  /* ---------- lighting ---------- */
+  const LED_GROUPS = [['Radiator fans', 3], ['LCD fans', 3], ['SL Infinity fan', 1], ['Pump cap', 1]];
+  const L = { fx: 'rainbow', color: PAL[0], bright: 70, speed: 50 };
+  $('#ledrow').innerHTML = LED_GROUPS.map(([n, c], gi) => `<div class="ledgroup"><span class="lbl">${n}</span><div class="leds">${
+    Array.from({ length: c }, (_, i) => `<svg class="ring" viewBox="0 0 64 64" data-g="${gi}" data-i="${i}">${
+      Array.from({ length: 12 }, (_, j) => { const a = j / 12 * Math.PI * 2; return `<circle cx="${32 + Math.cos(a) * 24}" cy="${32 + Math.sin(a) * 24}" r="4.2"/>`; }).join('')
+    }<circle cx="32" cy="32" r="13" fill="none" stroke="var(--line)" stroke-width="1.5"/></svg>`).join('')}</div></div>`).join('');
+  seg($('#seg-fx'), L.fx, v => { L.fx = v; $('#fx-colour').hidden = v === 'rainbow' || v === 'off' || v === 'temp'; });
+  $('#fx-colour').hidden = true;
+  swatches($('#sw-led'), PAL, L.color, c => L.color = c);
+  $('#r-ledb').addEventListener('input', e => { L.bright = +e.target.value; $('#v-ledb').textContent = L.bright + '%'; });
+  $('#r-leds').addEventListener('input', e => { L.speed = +e.target.value; $('#v-leds').textContent = L.speed + '%'; });
+  function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+  function drawLeds(t) {
+    const sp = .2 + L.speed / 50, b = L.bright / 100, off = css('--line');
+    $$('#ledrow .ring').forEach((svg, ri) => {
+      $$('circle', svg).slice(0, 12).forEach((c, j) => {
+        let col;
+        if (L.fx === 'off') col = off;
+        else if (L.fx === 'static') col = hexA(L.color, b);
+        else if (L.fx === 'breathe') col = hexA(L.color, b * (.25 + .75 * (.5 + .5 * Math.sin(t * sp * 2))));
+        else if (L.fx === 'rainbow') col = `hsla(${(j * 30 + ri * 40 + t * 80 * sp) % 360},85%,58%,${b})`;
+        else { const h = 190 - Math.min(1, Math.max(0, (S.cpu - 40) / 40)) * 190; col = `hsla(${h},85%,55%,${b})`; }
+        c.setAttribute('fill', col);
+      });
+    });
+  }
+
+  /* ---------- settings ---------- */
+  seg($('#seg-theme'), 'system', v => {
+    if (v === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v);
+    toast(v === 'system' ? 'Theme follows Windows' : (v === 'dark' ? 'Dark theme' : 'Light theme'));
+  });
+  let lcOn = false;
+  $('#btn-lc').addEventListener('click', () => {
+    lcOn = !lcOn;
+    $('#lc-state').textContent = lcOn ? 'L-Connect is on' : 'L-Connect is off';
+    $('#lc-sub').textContent = lcOn ? 'Vane has let go of the devices. Your screens and fans follow L-Connect until you turn it off.' : 'Its service and startup task are disabled, so Vane has the devices to itself.';
+    $('#lc-chip').textContent = lcOn ? 'On' : 'Off'; $('#lc-chip').className = 'chip ' + (lcOn ? 'warn' : 'ok');
+    $('#btn-lc').textContent = lcOn ? 'Turn off' : 'Turn on';
+    $$('.side-status div')[1].innerHTML = lcOn ? '<span class="dot warn"></span>L-Connect is on' : '<span class="dot"></span>L-Connect is off';
+    toast(lcOn ? 'L-Connect turned on' : 'L-Connect turned off');
+  });
+
+  /* ---------- loop ---------- */
+  const ovCv = { cooler: $('#ov-cooler'), fan1: $('#ov-fan1'), fan2: $('#ov-fan2'), fan3: $('#ov-fan3') };
+  let lastSensor = 0, lastFrame = 0;
+  function frame(now) {
+    const t = now / 1000;
+    if (now - lastSensor > 1000) {
+      lastSensor = now; tick();
+      const acc = css('--accent'), warn = css('--warn');
+      $('#st-cpu').innerHTML = Math.round(S.cpu) + '<small>°C</small>'; $('#st-cpu').className = 'v ' + heatClass(S.cpu);
+      $('#st-gpu').innerHTML = Math.round(S.gpu) + '<small>°C</small>'; $('#st-gpu').className = 'v ' + heatClass(S.gpu);
+      $('#st-coolant').innerHTML = S.coolant.toFixed(1) + '<small>°C</small>';
+      $('#st-pump').innerHTML = S.pump + '<small>rpm</small>';
+      spark($('#sp-cpu'), hist.cpu, S.cpu < 55 ? acc : warn); spark($('#sp-gpu'), hist.gpu, acc);
+      spark($('#sp-coolant'), hist.coolant, acc); spark($('#sp-pump'), hist.pump, acc);
+      $('#ov-coolant').textContent = S.coolant.toFixed(1) + ' °C'; $('#ov-pump').textContent = S.pump;
+      S.rad.forEach((r, i) => $('#ov-rad-' + i).textContent = r);
+      $('#ov-rad-avg').textContent = GROUPS.rad.rpm() + ' rpm';
+      Object.keys(GROUPS).forEach(k => $('#g-' + k).firstChild.nodeValue = GROUPS[k].rpm());
+      if (page === 'fans' && drag === null) drawCurve();
+    }
+    if (now - lastFrame > (reduce ? 1000 : 66)) {
+      lastFrame = now;
+      if (page === 'overview') for (const k in ovCv) drawScreen(ovCv[k], screens[k], t);
+      if (page === 'screens') {
+        drawScreen($('#stage'), screens[cur], t);
+        $$('.pickbtn canvas').forEach(c => drawScreen(c, screens[c.parentElement.dataset.k], t));
+        $$('#thumbs canvas').forEach((c, i) => { const x = c.getContext('2d'); art(x, 64, i, t); });
+        $$('#vthumbs canvas').forEach((c, i) => { const x = c.getContext('2d'); video(x, 64, i, t); });
+      }
+      if (page === 'lighting') drawLeds(t);
+    }
+    requestAnimationFrame(frame);
+  }
+  for (const k in ovCv) drawScreen(ovCv[k], screens[k], 0);
+  drawLeds(0);
+  requestAnimationFrame(frame);
+})();
+</script>

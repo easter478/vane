@@ -1,0 +1,45 @@
+[package]
+name = "vane"
+version = "0.1.0"
+edition = "2021"
+description = "Vane - a small replacement for Lian Li L-Connect 3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+parking_lot = "0.12"
+anyhow = "1"
+rusb = { version = "0.9", features = ["vendored"] }
+des = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rfd = "0.15"
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Memory",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = 3
+panic = "abort"

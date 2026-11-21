@@ -1,0 +1,6 @@
+src-tauri/target/
+src-tauri/gen/
+NOTES.md
+tools/pc.env
+tools/last-window.png
+.DS_Store
