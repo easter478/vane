@@ -36,6 +36,7 @@
   <nav class="side" aria-label="Sections">
     <button class="navbtn" data-page="overview" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
     <button class="navbtn" data-page="screens"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="10" height="10" rx="2"/><circle cx="17.5" cy="16.5" r="4"/></svg>Screens</button>
+    <button class="navbtn" data-page="studio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8.1-9-8.1z"/><circle cx="7.5" cy="11.5" r="1.3"/><circle cx="10.5" cy="7.5" r="1.3"/><circle cx="15.5" cy="8" r="1.3"/></svg>Design studio</button>
     <button class="navbtn" data-page="fans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 12c0-4 2-6 4.5-5.5M12 12c4 0 6 2 5.5 4.5M12 12c0 4-2 6-4.5 5.5M12 12c-4 0-6-2-5.5-4.5"/></svg>Fans and pump</button>
     <button class="navbtn" data-page="lighting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>Lighting</button>
     <button class="navbtn" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
@@ -128,6 +129,13 @@
                 <label class="field"><span>Blur background <b id="scr-blur-v"></b></span><input type="range" id="scr-blur" min="0" max="1" step="0.05"></label>
                 <div></div>
               </div>
+              <div id="scr-face-opts" style="display:grid;gap:14px">
+                <div class="row2">
+                  <label class="field"><span>Number size <b id="scr-num-v"></b></span><input type="range" id="scr-num" min="0.6" max="1.6" step="0.05"></label>
+                  <label class="field"><span>Label size <b id="scr-lbl-v"></b></span><input type="range" id="scr-lbl" min="0.6" max="1.8" step="0.05"></label>
+                </div>
+                <div class="field"><span>Design colour</span><div class="swatches"><input type="color" id="scr-fcol" aria-label="Design colour"><button class="btn small" id="scr-fcol-reset">Use the design's own</button></div></div>
+              </div>
               <div class="field"><span>Behind the numbers</span><div class="seg" id="scr-behind"><button data-v="outline">Dark outline</button><button data-v="plate">Glass plate</button><button data-v="none">Nothing</button></div></div>
             </div>
           </div>
@@ -138,6 +146,7 @@
                 <label class="field"><span>Brightness <b id="scr-bright-v"></b></span><input type="range" id="scr-bright" min="5" max="100" step="5"></label>
                 <label class="field"><span>Frames per second</span><select id="scr-fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="30">30</option></select></label>
               </div>
+              <label class="field" id="scr-corner-f"><span>Rounded corners <b id="scr-corner-v"></b></span><input type="range" id="scr-corner" min="0" max="0.5" step="0.01"></label>
               <div class="field"><span>Colour</span><div class="seg" id="scr-grade"><button data-v="natural">As drawn</button><button data-v="vivid">Vivid</button><button data-v="punchy">Extra vivid</button></div></div>
               <div class="row3">
                 <label class="field"><span>Contrast <b id="scr-contrast-v"></b></span><input type="range" id="scr-contrast" min="0.7" max="1.6" step="0.02"></label>
@@ -150,12 +159,22 @@
               <div class="setrow" id="scr-link-row"><div class="t"><b>Same look on all LCD fans</b><span>Design, background, look, colour, brightness and rotation go to all three. Each fan keeps its own layout and readings.</span></div><button class="switch" role="switch" id="scr-link"></button></div>
             </div>
           </div>
+          <div class="box">
+            <h3>Warnings <span class="muted">On every screen and design</span></h3>
+            <div style="display:grid;gap:14px">
+              <p class="small muted" style="margin:0">At the medium step a number turns yellow and pulses. At the high step it flashes red. FPS warns when it drops; the others warn when they climb.</p>
+              <div id="alert-rules" style="display:grid;gap:12px"></div>
+              <div class="field"><span>What flashes</span><div class="seg" id="alert-style"><button data-v="text">Only the number</button><button data-v="screen">The whole screen</button></div></div>
+              <div class="setrow"><div class="t"><b>Green while fine</b><span>Shows these readings in green until they reach the medium step.</span></div><button class="switch" role="switch" id="alert-green"></button></div>
+            </div>
+          </div>
         </div>
         <div class="opts">
           <div class="box">
             <h3>Designs <span class="muted">Shown with your live readings</span></h3>
             <div class="designs" id="scr-designs"></div>
             <div class="inline-name" style="margin-top:12px"><input type="text" id="scr-theme-name" placeholder="Name for this design" maxlength="32"><button class="btn" id="scr-save-theme">Save as my design</button></div>
+            <div class="addrow" style="margin-top:10px"><button class="btn small" id="scr-open-studio">Edit this design in Design studio</button></div>
           </div>
           <div class="box">
             <div class="box-head"><h3>Layout</h3><button class="btn small" id="scr-edit-layout">Edit layout</button></div>
@@ -165,6 +184,60 @@
             <h3>Background</h3>
             <div class="bgs" id="scr-bgs"></div>
             <div id="scr-lianli"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DESIGN STUDIO -->
+    <section class="page" id="p-studio">
+      <div class="page-head">
+        <div><h2>Design studio</h2><p>Start from any design or a blank screen, add gauges and readings, then save it, use it or share it as a zip.</p></div>
+        <div class="actions"><button class="btn" id="st-import">Import design (.zip)</button></div>
+      </div>
+      <div class="scr-grid">
+        <div class="side">
+          <div class="box stage st-stage">
+            <div class="seg" id="st-shape"><button data-v="sq">Cooler (square)</button><button data-v="rd">LCD fan (round)</button></div>
+            <div class="stage-wrap" id="st-wrap">
+              <img id="st-stage" class="sq" alt="Preview of the design">
+              <div class="overlay" id="st-overlay"></div>
+            </div>
+            <div class="cap" id="st-cap">Drag the parts to move them. Click one to change it.</div>
+          </div>
+          <div class="box">
+            <h3>Save and use</h3>
+            <div style="display:grid;gap:12px">
+              <div class="inline-name"><input type="text" id="st-name" placeholder="Name for this design" maxlength="32"><button class="btn primary" id="st-save">Save as my design</button></div>
+              <div class="inline-name"><select id="st-target" aria-label="Screen to use it on"></select><button class="btn" id="st-use">Use it now</button></div>
+              <div class="addrow"><button class="btn small" id="st-export">Export as zip</button></div>
+            </div>
+          </div>
+          <div class="box">
+            <h3>My designs</h3>
+            <div id="st-mine" class="witems"></div>
+          </div>
+        </div>
+        <div class="opts">
+          <div class="box">
+            <h3>Start from <span class="muted">Built-in designs can be changed here and saved as your own</span></h3>
+            <div class="designs" id="st-from"></div>
+          </div>
+          <div class="box">
+            <h3>Base</h3>
+            <div id="st-base" style="display:grid;gap:14px"></div>
+          </div>
+          <div class="box" id="st-read-box">
+            <h3>Readings <span class="muted">What the design itself shows</span></h3>
+            <div id="st-read" class="slots"></div>
+          </div>
+          <div class="box" id="st-pieces-box">
+            <div class="box-head"><h3>Design pieces <span class="muted">Drag them on the preview, resize or hide them</span></h3><button class="btn small" id="st-pieces-reset">Put all back</button></div>
+            <div id="st-pieces" class="pieces"></div>
+          </div>
+          <div class="box">
+            <h3>Parts <span class="muted">Gauges, numbers and text on top</span></h3>
+            <div id="st-parts"></div>
           </div>
         </div>
       </div>
@@ -245,5 +318,6 @@
 </div>
 <div class="toast" id="toast" role="status"></div>
 <script src="app.js"></script>
+<script src="studio.js"></script>
 </body>
 </html>

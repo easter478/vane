@@ -36,6 +36,27 @@ pub struct ScreenConfig {
     pub fps: u8,
     /// widgets for the "custom" layout, placed freely on the screen
     pub widgets: Vec<Widget>,
+    /// full-screen designs: size of the big number and of the labels (1 = as designed)
+    pub num_size: f32,
+    pub label_size: f32,
+    /// full-screen designs: replaces the design's own highlight colour when set (#hex)
+    pub face_color: String,
+    /// square screens: corner rounding, 0 (square) to 0.5 (a circle)
+    pub corner: f32,
+    /// full-screen designs: each piece's move, size and visibility, by piece id (see faces::PIECES)
+    pub face_parts: BTreeMap<String, FacePart>,
+}
+
+/// One piece of a full-screen design, moved, resized or hidden by the user.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct FacePart {
+    /// moved by this much (parts of the screen)
+    pub x: f32,
+    pub y: f32,
+    /// 1 = as designed (0 counts as 1)
+    pub size: f32,
+    pub hide: bool,
 }
 
 /// One item on a custom layout. x and y are the centre (0..1 of the screen); size scales its box.
@@ -92,11 +113,83 @@ fn sc(name: &str, bg: &str, layout: &str, slots: &[&str], accent: &str) -> Scree
         rotation: 0,
         fps: 20,
         widgets: Vec::new(),
+        num_size: 1.0,
+        label_size: 1.0,
+        face_color: String::new(),
+        corner: 0.0, face_parts: BTreeMap::new(),
+    }
+}
+
+/// One warning: `medium` turns the reading yellow, `high` flashes it red. With `below` the warning is
+/// for a drop (FPS), otherwise for a climb (power, temperature).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AlertRule {
+    pub id: String,
+    pub on: bool,
+    pub below: bool,
+    pub medium: f64,
+    pub high: f64,
+}
+
+impl Default for AlertRule {
+    fn default() -> Self {
+        Self { id: String::new(), on: false, below: false, medium: 80.0, high: 90.0 }
+    }
+}
+
+impl AlertRule {
+    /// 0 fine, 1 medium (yellow), 2 high (red)
+    pub fn level(&self, v: f64) -> u8 {
+        if self.below {
+            if v < self.high { 2 } else if v < self.medium { 1 } else { 0 }
+        } else if v >= self.high {
+            2
+        } else if v >= self.medium {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Alerts {
+    /// "text": only the number flashes; "screen": the whole screen flashes
+    pub style: String,
+    /// show readings in green while they're fine
+    pub green: bool,
+    pub rules: Vec<AlertRule>,
+}
+
+impl Default for Alerts {
+    fn default() -> Self {
+        let r = |id: &str, on: bool, below: bool, medium: f64, high: f64| AlertRule { id: id.into(), on, below, medium, high };
+        Self {
+            style: "text".into(),
+            green: false,
+            rules: vec![
+                r("fps", true, true, 90.0, 60.0),
+                r("gpu.power", true, false, 320.0, 350.0),
+                r("cpu.temp", true, false, 80.0, 90.0),
+                r("gpu.temp", false, false, 75.0, 83.0),
+            ],
+        }
     }
 }
 
 /// Built-in themes: (id, name, for cooler, for fans).
 pub const THEMES: &[(&str, &str, bool, bool)] = &[
+    ("telemetry", "Telemetry", true, true),
+    ("telemetry-white", "Telemetry white", true, true),
+    ("afterglow", "Afterglow", true, true),
+    ("chronograph", "Chronograph", true, true),
+    ("plasma", "Plasma", true, true),
+    ("porcelain", "Porcelain", true, true),
+    ("instrument", "Instrument", true, true),
+    ("frost", "Frost", true, true),
+    ("poster", "Poster", true, true),
     ("matrix-fps", "Matrix FPS", true, true),
     ("matrix-system", "Matrix system", true, true),
     ("matrix-rain", "Matrix rain", true, true),
@@ -113,6 +206,11 @@ pub const THEMES: &[(&str, &str, bool, bool)] = &[
 ];
 
 pub fn theme(id: &str) -> Option<ScreenConfig> {
+    if let Some(face) = crate::render::FACES.iter().find(|f| **f == id) {
+        let mut c = sc(id, &format!("face:{face}"), "dual", &["fps", "gpu.temp"], "#ffb020");
+        c.outline = false;
+        return Some(c);
+    }
     Some(match id {
         "matrix-fps" => sc(id, "matrix", "gaming", &["fps", "frametime", "fps.low1", "gpu.temp", "gpu.power"], "#00ff6a"),
         "matrix-system" => sc(id, "matrix", "system", &["cpu.temp", "cpu.load", "gpu.temp", "gpu.load"], "#00ff6a"),
@@ -222,6 +320,8 @@ pub struct Config {
     pub openrgb_launch: bool,
     /// start MSI Afterburner and RivaTuner (through their own startup tasks) when they aren't running
     pub start_afterburner: bool,
+    /// warnings that flash on every screen when a reading crosses a step
+    pub alerts: Alerts,
     /// OpenRGB device names Vane leaves alone (motherboard, memory, graphics card… are on by default)
     pub openrgb_skip: Vec<String>,
     /// other OpenRGB devices (keyboards, Stream Deck…) the user switched on
@@ -270,6 +370,7 @@ impl Default for Config {
             openrgb_skip: Vec::new(),
             openrgb_include: Vec::new(),
             start_afterburner: true,
+            alerts: Alerts::default(),
             version: 3,
         }
     }

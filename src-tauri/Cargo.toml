@@ -1,6 +1,6 @@
 [package]
 name = "vane"
-version = "0.2.1"
+version = "0.2.3"
 edition = "2021"
 description = "Vane - a small replacement for Lian Li L-Connect 3"
 
@@ -23,6 +23,7 @@ ab_glyph = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rfd = "0.15"
 base64 = "0.22"
+zip = { version = "2.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

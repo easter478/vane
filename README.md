@@ -51,14 +51,34 @@ Vane starts with Windows by itself. Turn that off in Settings if you'd rather st
 
 Pick a screen at the top (the cooler or one of the LCD fans). The live preview is on the left, with **Look** and **Screen** settings under it. Designs, the layout and backgrounds are on the right.
 
-- **Designs:** click one to use it. The gallery shows each design with your live readings. Save your own with **Save as my design**.
-- **Layout:** choose what each spot shows (FPS, GPU power, CPU temperature…). Click **Edit layout** to drag items on the preview, resize them, change their type (number, gauge, bar, graph, clock, date, text) and add or remove them.
+- **Designs:** click one to use it. The gallery shows each design with your live readings. Save your own with **Save as my design**. Nine full-screen designs show a big reading with a second one under it (by default FPS and GPU temperature):
+  - Dark: **Telemetry** (frame-time graph that marks stutters, 1% low, segmented bar), **Afterglow** (rev-counter ring), **Chronograph** (watch dial with a sub-dial), **Plasma** (moving orb with comets and sparks that speed up with FPS).
+  - White: **Telemetry white**, **Porcelain**, **Instrument** (gauge with a needle), **Frost** (drifting pastel light), **Poster** (huge black number, red bar).
+  - On each fan, the first two readings in **Layout** decide what the design shows, so the fans can share one design and still show different readings. White designs look best with the fan brightness raised.
+  - With one of these designs chosen, **Look** has **Number size**, **Label size** and **Design colour** (replaces the design's own highlight colour; **Use the design's own** puts it back).
+  - **Edit this design in Design studio** opens the current design in the studio.
+- **Layout:** choose what each spot shows (FPS, GPU power, CPU temperature…). Click **Edit layout** to drag items on the preview, resize them, change their type (number, gauge, bar, graph, clock, date, text, and the gauges from the full-screen designs: glow ring, watch dial, rev counter, segment bar, frame graph, plasma orb) and add or remove them. On a full-screen design, added parts sit on top of it.
 - **Background:** built-in animations, a solid colour, your own picture or GIF, or a video. **Import from L-Connect** copies L-Connect's cooler videos and fan animations into Vane.
 - **Look:** accent and text colour, animation speed, dim and blur the background, and what sits behind the numbers (a dark outline, a glass plate, or nothing).
-- **Screen:** brightness, frames per second, rotation and colour. The LCDs look washed out with the picture as drawn, so screens start on **Vivid**. Contrast, Saturation, Depth and Deeper blacks fine-tune it. The fan screens have one backlight behind the whole panel, so black still glows a little: Deeper blacks and a lower brightness help.
+- **Screen:** brightness, **rounded corners** (cooler only: rounds off the square picture's corners, up to a full circle), frames per second, rotation and colour. The LCDs look washed out with the picture as drawn, so screens start on **Vivid**. Contrast, Saturation, Depth and Deeper blacks fine-tune it. The fan screens have one backlight behind the whole panel, so black still glows a little: Deeper blacks and a lower brightness help.
+- **Warnings** (for every screen and design): FPS turns yellow when it drops below the medium step and flashes red below the high step. GPU power, CPU temperature and GPU temperature do the same when they climb. Each reading has its own switch and steps. Choose whether only the number flashes or the whole screen, and whether readings show green while they're fine.
 - **Same look on all LCD fans** shares the design, background, look, colour, brightness and rotation across the three fan screens. Each fan keeps its own layout and readings.
 
 ![Screens](docs/screenshots/screens.png)
+
+### Design studio
+
+A tab of its own for making designs. The live preview on the left animates with your readings; switch it between the square cooler and a round fan.
+
+- **Start from** a blank screen, any built-in design or one of your own. Built-in designs aren't changed: save the result under a new name.
+- **Base:** background (any full-screen design, animation, solid colour, picture, GIF or video), accent, text and design colour, number and label size, animation speed.
+- **Readings:** the big and small reading of a full-screen design.
+- **Design pieces:** every piece of a full-screen design (for Telemetry white: label, live dot, big number, frame graph, graph captions, small reading label, value and bar) can be dragged on the preview, resized with its own slider, or hidden. **Reset** puts one piece back; **Put all back** resets them all.
+- **Parts:** add numbers, gauges, bars, graphs, clock, date, text and the design gauges (glow ring, watch dial, rev counter, segment bar, frame graph, plasma orb). Drag them on the preview (arrow keys move the selected one) and set what they show, size, colour, caption and glass plate.
+- **Save as my design**, then **Use it now** on the cooler, one fan or all LCD fans. Your brightness, rotation, corners and colour settings on that screen stay as they are.
+- **Export as zip** saves the design (`design.json`, plus its picture or video). **Import design (.zip)** adds one to My designs; its picture or video is unpacked into `%APPDATA%\Vane\designs\<name>\`.
+
+![Design studio](docs/screenshots/studio.png)
 
 ### Fans and pump
 
@@ -130,8 +150,10 @@ That gives the portable exe at `src-tauri/target/release/vane.exe`. For the inst
 | Video backgrounds (Media Foundation) | `src-tauri/src/video.rs` |
 | L-Connect video import | `src-tauri/src/library.rs` |
 | Sensor hub: RTSS, MSI Afterburner, NVIDIA (NVML), HWiNFO, Windows | `src-tauri/src/sensors.rs` |
-| Screen renderer and widgets (tiny-skia, ab_glyph) | `src-tauri/src/render.rs` |
+| Screen renderer, widgets and warnings (tiny-skia, ab_glyph) | `src-tauri/src/render.rs` |
+| Full-screen designs (Telemetry, Plasma, Porcelain…) | `src-tauri/src/render/faces.rs` |
 | Settings and built-in designs | `src-tauri/src/config.rs` |
+| Design studio (live frames, zip export/import) | `src-tauri/src/main.rs` (`studio_frame`, `export_design`, `import_design`), `ui/studio.js` |
 | Worker threads | `src-tauri/src/engine.rs` |
 | Installer hooks (Afterburner, RTSS and OpenRGB via winget) | `src-tauri/windows/hooks.nsh` |
 | Window UI | `ui/` |

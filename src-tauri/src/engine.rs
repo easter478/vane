@@ -256,7 +256,7 @@ impl Engine {
             }
 
             let sensors = self.sensors.read();
-            let pm = render::render(&mut fonts, &mut state, &cfg, &sensors, size, !is_cooler, started.elapsed().as_secs_f32());
+            let pm = render::render(&mut fonts, &mut state, &cfg, &sensors, size, !is_cooler, started.elapsed().as_secs_f32(), Some(&cfg_all.alerts));
             if !is_cooler && test_at.elapsed() > Duration::from_secs(1) {
                 test_at = Instant::now();
                 test_bright = std::fs::read_to_string(crate::config::dir().join("fan-brightness-test.txt")).ok().and_then(|s| s.trim().parse::<u8>().ok()).map(|v| v.min(100));

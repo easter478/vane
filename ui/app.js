@@ -121,6 +121,7 @@ function go(p) {
   renderAll();
   pullPreviews();
   if (p === "screens") { renderDesignPics(); if (!library) loadLibrary(); }
+  if (p === "studio") renderStudio(true);
 }
 $$(".navbtn").forEach((b) => b.addEventListener("click", () => go(b.dataset.page)));
 $("#w-min").onclick = () => appWin.minimize();
@@ -232,7 +233,14 @@ let library = null;    // imported L-Connect videos
 let importing = false;
 const designPics = {}; // "kind|id|sig" -> rendered picture
 let designBusy = false;
-const WIDGET_NAMES = { value: "Number", gauge: "Gauge", bar: "Bar", clock: "Clock", date: "Date", text: "Text", graph: "Graph" };
+const WIDGET_NAMES = { value: "Number", gauge: "Gauge", bar: "Bar", clock: "Clock", date: "Date", text: "Text", graph: "Graph", ring: "Glow ring", dial: "Watch dial", rev: "Rev counter", segments: "Segment bar", frames: "Frame graph", orb: "Plasma orb" };
+// parts that show a reading (the rest are the clock, the date and plain text)
+const SENSOR_KINDS = ["value", "gauge", "bar", "graph", "ring", "dial", "rev", "segments", "frames", "orb"];
+const PART_SENSOR = { ring: "gpu.temp", dial: "cpu.temp", rev: "fps", segments: "gpu.load", frames: "fps", orb: "fps" };
+const isFace = (c) => (c.background || "").startsWith("face:");
+function faceSlotsHtml(c) {
+  return `<div class="slots">${["Big reading", "Small reading"].map((nm, i) => `<div class="slotrow"><span class="n">${i + 1}</span><select data-slot="${i}" aria-label="${nm}">${sensorOptions(c.slots[i] || "", i ? "Picks one to match" : "FPS")}</select><span class="val" data-live="${esc(c.slots[i] || "")}">${readingText(c.slots[i])}</span></div>`).join("")}</div>`;
+}
 const COLOR_NAMES = { heat: "Warms with heat", accent: "Accent", text: "Text colour" };
 
 function sensorOptions(selected, empty = "Empty") {
@@ -347,7 +355,19 @@ function renderScreens(force) {
   $("#scr-fps").value = String(c.fps);
   setSeg($("#scr-rot"), c.rotation);
   $("#scr-link-row").hidden = !isFan;
+  $("#scr-corner-f").hidden = isFan;
+  $("#scr-corner").value = c.corner || 0; $("#scr-corner-v").textContent = c.corner > 0.005 ? Math.round((c.corner / 0.5) * 100) + "%" : "Square";
+  const face = isFace(c);
+  $("#scr-face-opts").hidden = !face;
+  if (face) {
+    const ns = c.num_size || 1, ls = c.label_size || 1;
+    $("#scr-num").value = ns; $("#scr-num-v").textContent = Math.round(ns * 100) + "%";
+    $("#scr-lbl").value = ls; $("#scr-lbl-v").textContent = Math.round(ls * 100) + "%";
+    $("#scr-fcol").value = c.face_color || c.accent;
+    $("#scr-fcol-reset").hidden = !c.face_color;
+  }
   setSwitch($("#scr-link"), cfg.link_fan_screens);
+  renderAlerts();
 }
 
 function readingText(id) { const r = id && reading(id); return r && r.value != null ? fmt(r.value, r.unit) + " " + (r.unit === "FPS" ? "FPS" : r.unit || "") : "no reading"; }
@@ -362,13 +382,18 @@ function renderLayoutBox(c, isFan, force) {
   $("#scr-edit-layout").textContent = editing ? "Done" : "Edit layout";
   $("#scr-edit-layout").className = editing ? "btn small primary" : "btn small";
   const custom = c.layout === "custom";
-  const sig = JSON.stringify([c.layout, c.slots, c.widgets, editing, selWidget, selScreen, Object.keys(snap.sensors.groups).length]);
+  const face = isFace(c);
+  const sig = JSON.stringify([c.layout, c.background, c.slots, c.widgets, editing, selWidget, selScreen, Object.keys(snap.sensors.groups).length]);
   const typing = box.contains(document.activeElement) && document.activeElement.matches("input, select");
   if (!force && (box.dataset.sig === sig || typing)) {
     $$("[data-live]", box).forEach((el) => { el.textContent = readingText(el.dataset.live); });
     return;
   }
   box.dataset.sig = sig;
+  if (face && !custom) {
+    box.innerHTML = `<p class="small muted" style="margin:0 0 10px">This design shows a big reading and a small one. Choose them here, or click Edit layout to add gauges on top.</p>${faceSlotsHtml(c)}`;
+    return;
+  }
   if (!custom) {
     const n = meta.layouts.find((l) => l.id === c.layout)?.slots ?? 0;
     const name = meta.layouts.find((l) => l.id === c.layout)?.name || c.layout;
@@ -379,7 +404,8 @@ function renderLayoutBox(c, isFan, force) {
   const ws = c.widgets || [];
   if (selWidget >= ws.length) selWidget = Math.max(0, ws.length - 1);
   const w = ws[selWidget];
-  const items = ws.map((x, i) => `<button class="witem" data-w="${i}" aria-pressed="${editing && i === selWidget}"><span>${esc(widgetTitle(x))}</span>${["clock", "date", "text"].includes(x.kind) ? "" : `<span class="val" data-live="${esc(x.sensor)}">${readingText(x.sensor)}</span>`}</button>`).join("") || `<p class="small muted" style="margin:0">Nothing on the screen yet. Add something below.</p>`;
+  const top = face ? `<div style="margin-bottom:12px">${faceSlotsHtml(c)}</div>` : "";
+  const items = ws.map((x, i) => `<button class="witem" data-w="${i}" aria-pressed="${editing && i === selWidget}"><span>${esc(widgetTitle(x))}</span>${["clock", "date", "text"].includes(x.kind) ? "" : `<span class="val" data-live="${esc(x.sensor)}">${readingText(x.sensor)}</span>`}</button>`).join("") || (face ? `<p class="small muted" style="margin:0">Only the design itself. Add parts below to put them on top.</p>` : `<p class="small muted" style="margin:0">Nothing on the screen yet. Add something below.</p>`);
   const add = `<div class="field"><span>Add to the screen</span><div class="addrow">${meta.widgets.map((k) => `<button class="btn small" data-add="${k.id}">${esc(k.name)}</button>`).join("")}</div></div>`;
   let ed = "";
   if (editing && w) {
@@ -392,12 +418,12 @@ function renderLayoutBox(c, isFan, force) {
       </div>
       <label class="field"><span>Size <b>${Math.round(w.size * 100)}%</b></span><input type="range" id="w-size" min="0.3" max="3" step="0.05" value="${w.size}"></label>
       <div class="field"><span>Colour</span><div class="swatches"><div class="seg" id="w-color">${colors.map((k) => `<button data-v="${k}" aria-pressed="${w.color === k}">${COLOR_NAMES[k]}</button>`).join("")}</div><input type="color" id="w-color-custom" value="${custom ? w.color : c.accent}" aria-label="Own colour"${custom ? ' class="on"' : ""}></div></div>
-      ${["value", "gauge", "bar", "graph"].includes(w.kind) ? `<label class="field"><span>Caption</span><input type="text" id="w-caption" value="${esc(w.label)}" placeholder="Uses the reading's name" maxlength="24"></label>` : ""}
+      ${SENSOR_KINDS.includes(w.kind) ? `<label class="field"><span>Caption</span><input type="text" id="w-caption" value="${esc(w.label)}" placeholder="Uses the reading's name" maxlength="24"></label>` : ""}
       <div class="setrow"><div class="t"><b>Glass plate behind it</b></div><button class="switch" role="switch" id="w-plate" aria-checked="${w.plate}"></button></div>
       <div class="addrow"><button class="btn small" id="w-dup">Duplicate</button><button class="btn small" id="w-remove">Remove</button></div>
     </div>`;
   }
-  box.innerHTML = `<div class="witems">${items}</div>${editing ? ed + add : `<p class="small muted" style="margin:10px 0 0">Click Edit layout to move, resize, change or add items.</p>`}`;
+  box.innerHTML = `${top}<div class="witems">${items}</div>${editing ? ed + add : `<p class="small muted" style="margin:10px 0 0">Click Edit layout to move, resize, change or add items.</p>`}`;
 }
 function renderOverlay(c) {
   const ov = $("#scr-overlay");
@@ -453,7 +479,7 @@ $("#scr-designs").addEventListener("click", (e) => {
   const base = id.startsWith("my:") ? cfg.my_themes[id.slice(3)] : meta.themes.find((t) => t.id === id)?.config;
   if (!base) return;
   editing = false;
-  editScreen((c) => { const keep = { enabled: c.enabled, brightness: c.brightness, rotation: c.rotation, fps: c.fps, outline: c.outline, plates: c.plates, blur: c.blur, contrast: c.contrast, saturation: c.saturation, gamma: c.gamma, black: c.black }; Object.assign(c, clone(base), keep, { theme: id }); });
+  editScreen((c) => { const keep = { enabled: c.enabled, brightness: c.brightness, rotation: c.rotation, fps: c.fps, corner: c.corner, outline: c.outline, plates: c.plates, blur: c.blur, contrast: c.contrast, saturation: c.saturation, gamma: c.gamma, black: c.black }; Object.assign(c, clone(base), keep, { theme: id }); });
   renderDesignPics();
 });
 $("#scr-edit-layout").onclick = async () => {
@@ -476,7 +502,7 @@ $("#scr-layout-box").addEventListener("click", (e) => {
   const add = e.target.closest("[data-add]");
   if (add) {
     const kind = add.dataset.add;
-    const sensor = ["clock", "date", "text"].includes(kind) ? "" : "cpu.load";
+    const sensor = ["clock", "date", "text"].includes(kind) ? "" : PART_SENSOR[kind] || "cpu.load";
     editScreen((c) => { c.widgets.push({ kind, sensor, x: 0.5, y: 0.5, size: 1, color: kind === "clock" ? "accent" : kind === "date" ? "text" : "heat", label: kind === "text" ? "Vane" : "", plate: c.plates }); selWidget = c.widgets.length - 1; });
     renderScreens(true); return;
   }
@@ -492,7 +518,7 @@ $("#scr-layout-box").addEventListener("input", (e) => {
 });
 $("#scr-layout-box").addEventListener("change", (e) => {
   if (e.target.dataset.slot != null) { const i = +e.target.dataset.slot; editScreen((c) => { while (c.slots.length <= i) c.slots.push(""); c.slots[i] = e.target.value; }); return; }
-  if (e.target.id === "w-kind") editWidget((w) => { w.kind = e.target.value; if (["value", "gauge", "bar", "graph"].includes(w.kind) && !w.sensor) w.sensor = "cpu.load"; });
+  if (e.target.id === "w-kind") editWidget((w) => { w.kind = e.target.value; if (SENSOR_KINDS.includes(w.kind) && !w.sensor) w.sensor = PART_SENSOR[w.kind] || "cpu.load"; });
   if (e.target.id === "w-sensor") editWidget((w) => { w.sensor = e.target.value; });
   if (["w-label", "w-caption", "w-color-custom"].includes(e.target.id)) renderScreens(true);
 });
@@ -545,6 +571,12 @@ $("#scr-clock").onclick = (e) => { const b = e.target.closest("button"); if (b) 
 for (const [id, key, num] of [["#scr-speed", "speed", parseFloat], ["#scr-dim", "dim", parseFloat], ["#scr-bright", "brightness", (v) => parseInt(v, 10)]]) {
   $(id).oninput = (e) => editScreen((c) => { c[key] = num(e.target.value); });
 }
+$("#scr-corner").oninput = (e) => editScreen((c) => { c.corner = parseFloat(e.target.value); });
+$("#scr-num").oninput = (e) => editScreen((c) => { c.num_size = parseFloat(e.target.value); });
+$("#scr-lbl").oninput = (e) => editScreen((c) => { c.label_size = parseFloat(e.target.value); });
+$("#scr-fcol").onchange = (e) => editScreen((c) => { c.face_color = e.target.value; });
+$("#scr-fcol-reset").onclick = () => editScreen((c) => { c.face_color = ""; });
+$("#scr-open-studio").onclick = () => { const { cur } = curScreen(); const c = scr(selScreen); openStudio(c, c.theme.startsWith("my:") ? c.theme.slice(3) : "", cur.kind === "fan"); };
 $("#scr-fps").onchange = (e) => editScreen((c) => { c.fps = parseInt(e.target.value, 10); });
 $("#scr-rot").onclick = (e) => { const b = e.target.closest("button"); if (b) editScreen((c) => { c.rotation = parseInt(b.dataset.v, 10); }); };
 // colour presets: contrast, saturation, depth (gamma); the panels look washed out "as drawn"
@@ -959,6 +991,7 @@ function renderAll(soft) {
   }
   if (page === "lighting") renderLighting();
   if (page === "settings") renderSettings();
+  if (page === "studio") renderStudio();
 }
 function refreshGroupRpm() {
   const w = snap.status.wireless;
@@ -999,7 +1032,54 @@ $("#ov-img-cooler").dataset.preview = "cooler";
   setInterval(poll, 1000);
   setInterval(pullPreviews, 200);
   const sp = await invoke("start_page").catch(() => null);
-  if (sp) { const [pg, extra] = sp.split(":"); go(pg); if (extra === "edit") setTimeout(() => $("#scr-edit-layout").click(), 300); if (extra === "fan") { const f = fanScreens()[0]; if (f) { selScreen = f.key; renderScreens(true); renderDesignPics(); } } }
+  if (sp) { const [pg, extra] = sp.split(":"); go(pg); if (extra === "edit") setTimeout(() => $("#scr-edit-layout").click(), 300); if (extra === "fan") { const f = fanScreens()[0]; if (f) { selScreen = f.key; renderScreens(true); renderDesignPics(); } }
+    // --page=studio:<design>[+demo] opens the studio on a built-in design (for screenshots); +demo moves a few pieces
+    if (pg === "studio" && extra && extra !== "fan") {
+      const [id, demo] = extra.split("+"); const t = meta.themes.find((x) => x.id === id);
+      if (t) { const c = clone(t.config); if (demo) c.face_parts = { num: { x: 0, y: 0.05, size: 1.35, hide: false }, graph: { x: 0, y: -0.43, size: 0.8, hide: false }, captions: { x: 0, y: 0, size: 1, hide: true }, sub_value: { x: 0.04, y: 0, size: 1.4, hide: false } }; await openStudio(c, "", true); if (demo) { studio.psel = "num"; renderStudio(true); } }
+    }
+  }
   // designs show live readings; refresh their pictures now and then while the page is open
   setInterval(() => { if (page === "screens" && !document.hidden && !editing) renderDesignPics(true); }, 20000);
 })();
+
+// ------------------------------------------------------------------ warnings (all screens)
+const ALERT_INFO = {
+  "fps": { name: "FPS", unit: "fps", what: "Warns when it drops below these" },
+  "gpu.power": { name: "GPU power", unit: "W", what: "Warns when it climbs to these" },
+  "cpu.temp": { name: "CPU temperature", unit: "°C", what: "Warns when it climbs to these" },
+  "gpu.temp": { name: "GPU temperature", unit: "°C", what: "Warns when it climbs to these" },
+};
+function alertsCfg() {
+  if (!cfg.alerts) cfg.alerts = { style: "text", green: false, rules: [] };
+  return cfg.alerts;
+}
+function renderAlerts() {
+  const a = alertsCfg();
+  setSeg($("#alert-style"), a.style || "text");
+  setSwitch($("#alert-green"), !!a.green);
+  const box = $("#alert-rules");
+  if (box.contains(document.activeElement) && document.activeElement.type === "number") return;
+  box.innerHTML = a.rules.filter((r) => ALERT_INFO[r.id]).map((r) => {
+    const i = ALERT_INFO[r.id], dir = r.below ? "below" : "from";
+    return `<div class="alert-rule" data-off="${!r.on}">
+      <div class="setrow"><div class="t"><b>${esc(i.name)}</b><span>${esc(i.what)}</span></div><button class="switch" role="switch" data-alert-on="${esc(r.id)}" aria-checked="${!!r.on}" aria-label="Warn on ${esc(i.name)}"></button></div>
+      <div class="row2">
+        <label class="field"><span><i class="alert-dot y"></i>Medium, ${dir} (${esc(i.unit)})</span><input type="number" id="alert-${esc(r.id)}-m" data-alert-v="medium" data-id="${esc(r.id)}" value="${r.medium}" step="1"></label>
+        <label class="field"><span><i class="alert-dot r"></i>High, ${dir} (${esc(i.unit)})</span><input type="number" id="alert-${esc(r.id)}-h" data-alert-v="high" data-id="${esc(r.id)}" value="${r.high}" step="1"></label>
+      </div></div>`;
+  }).join("");
+}
+$("#alert-rules").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-alert-on]"); if (!b) return;
+  const r = alertsCfg().rules.find((x) => x.id === b.dataset.alertOn); if (!r) return;
+  r.on = !r.on; save(); renderAlerts();
+});
+$("#alert-rules").addEventListener("change", (e) => {
+  const inp = e.target.closest("[data-alert-v]"); if (!inp) return;
+  const r = alertsCfg().rules.find((x) => x.id === inp.dataset.id); if (!r) return;
+  const v = parseFloat(inp.value); if (!isFinite(v)) { renderAlerts(); return; }
+  r[inp.dataset.alertV] = v; save();
+});
+$("#alert-style").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; alertsCfg().style = b.dataset.v; save(); renderAlerts(); };
+$("#alert-green").onclick = () => { const a = alertsCfg(); a.green = !a.green; save(); renderAlerts(); };

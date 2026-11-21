@@ -1,16 +1,21 @@
 //! Draws what each screen shows: an animated background layer, a sensor/clock layout layer on top,
 //! then encodes a JPEG for the panel. The same frames feed the app's live previews.
 
-use crate::config::ScreenConfig;
+use crate::config::{Alerts, ScreenConfig};
 use crate::sensors::{smart_meta, SensorState};
 use ab_glyph::{Font, FontVec, PxScale, ScaleFont, VariableFont};
 use std::collections::HashMap;
 use tiny_skia::*;
 
+mod faces;
+pub use faces::{FACES, PIECES};
+
 // ------------------------------------------------------------------ fonts and text
 
 pub struct Fonts {
     faces: Vec<FontVec>, // 0 regular, 1 bold, 2 katakana (optional)
+    /// fonts for the full-screen designs, from slot 10 up (see faces::COND and the rest)
+    extra: Vec<Option<FontVec>>,
     cache: HashMap<(u8, u16, u16), Mask>,
     rings: HashMap<(u8, u16, u16, u8), Mask>,
     /// dark outline around text drawn with draw() while > 0 (set per screen during the layout pass)
@@ -44,10 +49,34 @@ impl Fonts {
         if let Some(k) = load(&f("msgothic.ttc"), 0).or_else(|| load(&f("YuGothM.ttc"), 0)) {
             faces.push(k);
         }
-        Self { faces, cache: HashMap::new(), rings: HashMap::new(), outline: 0.0 }
+        let var = |names: &[&str], axes: &[(&[u8; 4], f32)]| -> Option<FontVec> {
+            names.iter().find_map(|n| load(&f(n), 0)).map(|mut v| {
+                for (tag, val) in axes {
+                    v.set_variation(tag, *val);
+                }
+                v
+            })
+        };
+        let extra = vec![
+            var(&["bahnschrift.ttf"], &[(b"wght", 700.0), (b"wdth", 75.0)]),
+            var(&["SegUIVar.ttf", "segoeuil.ttf"], &[(b"wght", 300.0)]),
+            var(&["SegUIVar.ttf", "segoeui.ttf"], &[(b"wght", 450.0)]),
+            var(&["SegUIVar.ttf", "seguisb.ttf"], &[(b"wght", 620.0)]),
+            var(&["CascadiaMono.ttf", "consolab.ttf"], &[(b"wght", 600.0)]),
+            var(&["CascadiaMono.ttf", "consola.ttf"], &[(b"wght", 400.0)]),
+            var(&["seguibl.ttf", "ariblk.ttf"], &[]),
+            var(&["SegUIVar.ttf", "segoeuib.ttf"], &[(b"wght", 700.0)]),
+        ];
+        Self { faces, extra, cache: HashMap::new(), rings: HashMap::new(), outline: 0.0 }
     }
 
     fn face(&self, i: u8) -> &FontVec {
+        if i >= 10 {
+            return match self.extra.get((i - 10) as usize) {
+                Some(Some(f)) => f,
+                _ => &self.faces[1],
+            };
+        }
         self.faces.get(i as usize).unwrap_or(&self.faces[0])
     }
 
@@ -345,11 +374,13 @@ pub struct ScreenState {
     image: Option<(String, Vec<Pixmap>, Vec<u32>)>, // path, frames, delays (ms)
     video: Option<crate::video::Video>,
     pub identify: Option<(u8, std::time::Instant)>,
+    /// static layer of the current full-screen design, keyed by design and size
+    face_bg: Option<(String, Pixmap)>,
 }
 
 impl ScreenState {
     pub fn new(seed: u64) -> Self {
-        Self { rng: Rng(seed | 1), matrix: Vec::new(), matrix_size: 0, image: None, video: None, identify: None }
+        Self { rng: Rng(seed | 1), matrix: Vec::new(), matrix_size: 0, image: None, video: None, identify: None, face_bg: None }
     }
 }
 
@@ -654,6 +685,12 @@ pub const WIDGETS: &[(&str, &str, f32, f32)] = &[
     ("date", "Date", 0.5, 0.08),
     ("text", "Text", 0.6, 0.09),
     ("graph", "Graph", 0.6, 0.2),
+    ("ring", "Glow ring", 0.46, 0.46),
+    ("dial", "Watch dial", 0.6, 0.6),
+    ("rev", "Rev counter", 0.6, 0.6),
+    ("segments", "Segment bar", 0.56, 0.12),
+    ("frames", "Frame graph", 0.62, 0.2),
+    ("orb", "Plasma orb", 0.6, 0.6),
 ];
 
 pub fn widget_box(kind: &str) -> (f32, f32) {
@@ -666,6 +703,9 @@ pub fn preset_widgets(cfg: &ScreenConfig, round: bool) -> Vec<crate::config::Wid
     let slot = |i: usize| cfg.slots.get(i).cloned().unwrap_or_default();
     let w = |kind: &str, sensor: String, x: f32, y: f32, size: f32, color: &str| Widget { kind: kind.into(), sensor, x, y, size, color: color.into(), label: String::new(), plate: cfg.plates };
     let mut out = Vec::new();
+    if cfg.background.starts_with("face:") {
+        return if cfg.layout == "custom" { cfg.widgets.clone() } else { out }; // the design draws itself; parts go on top
+    }
     match cfg.layout.as_str() {
         "gaming" => {
             out.push(w("value", slot(0), 0.5, if round { 0.35 } else { 0.27 }, 1.6, "accent"));
@@ -741,6 +781,8 @@ struct V {
     frac: f32,
     hot: f32,
     history: Vec<f64>,
+    /// warning colour and how strongly it shows this frame
+    alert: Option<([u8; 3], f32)>,
 }
 
 fn fmt_value(v: f64, unit: &str) -> String {
@@ -779,9 +821,9 @@ fn value_of(sensors: &SensorState, id: &str) -> V {
             let unit = if r.unit.is_empty() { unit_fallback } else { r.unit.clone() };
             let max = gauge_max(&unit, id);
             let hot = if unit == "°C" { ((r.value - 65.0) / 20.0).clamp(0.0, 1.0) as f32 } else { 0.0 };
-            V { label, text: fmt_value(r.value, &unit), unit, frac: (r.value / max).clamp(0.0, 1.0) as f32, hot, history: sensors.history.get(id).cloned().unwrap_or_default() }
+            V { label, text: fmt_value(r.value, &unit), unit, frac: (r.value / max).clamp(0.0, 1.0) as f32, hot, history: sensors.history.get(id).cloned().unwrap_or_default(), alert: text_alert(sensors, id) }
         }
-        None => V { label, text: "--".into(), unit: unit_fallback, frac: 0.0, hot: 0.0, history: Vec::new() },
+        None => V { label, text: "--".into(), unit: unit_fallback, frac: 0.0, hot: 0.0, history: Vec::new(), alert: None },
     }
 }
 
@@ -796,13 +838,13 @@ fn caption(v: &V) -> String {
     if u.is_empty() || l.split_whitespace().any(|w| w.eq_ignore_ascii_case(u)) { l } else { format!("{l}  {}", u.to_uppercase()) }
 }
 
-fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorState, round: bool) {
+fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorState, round: bool, t: f32) {
     let s = pm.width() as f32;
     let acc = hex(&cfg.accent);
     let txt = hex(&cfg.text);
     let warm = [255, 170, 60];
     let hotc = [255, 80, 70];
-    let heat = |v: &V| if v.hot <= 0.0 { acc } else if v.hot < 0.6 { mix(acc, warm, v.hot / 0.6) } else { mix(warm, hotc, (v.hot - 0.6) / 0.4) };
+    let heat = |v: &V| vc(v, if v.hot <= 0.0 { acc } else if v.hot < 0.6 { mix(acc, warm, v.hot / 0.6) } else { mix(warm, hotc, (v.hot - 0.6) / 0.4) });
     let slots: Vec<V> = cfg.slots.iter().map(|id| value_of(sensors, id)).collect();
     let get = |i: usize| slots.get(i);
     let plate = |pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32| {
@@ -816,7 +858,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
             if let Some(v) = get(0) {
                 let (py, ph) = if round { (s * 0.17, s * 0.36) } else { (s * 0.06, s * 0.42) };
                 plate(pm, s * 0.14, py, s * 0.72, ph);
-                f.draw(pm, 1, &v.text, s * 0.25, mid, py + ph * 0.66, 1, acc, 1.0);
+                f.draw(pm, 1, &v.text, s * 0.25, mid, py + ph * 0.66, 1, vc(v, acc), 1.0);
                 f.draw(pm, 0, &caption(v), s * 0.05, mid, py + ph * 0.9, 1, txt, 0.75);
                 if !v.history.is_empty() && !round {
                     spark(pm, &v.history, s * 0.18, py + ph * 0.04, s * 0.64, ph * 0.13, acc);
@@ -848,7 +890,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                     let a0 = std::f32::consts::PI * 0.75;
                     arc(pm, x, y, r, a0, a0 + std::f32::consts::PI * 1.5, s * 0.02, rgba([255, 255, 255], 0.12));
                     arc(pm, x, y, r, a0, a0 + std::f32::consts::PI * 1.5 * v.frac.max(0.01), s * 0.02, rgba(heat(v), 1.0));
-                    f.draw(pm, 1, &v.text, r * 0.62, x, y + r * 0.2, 1, txt, 1.0);
+                    f.draw(pm, 1, &v.text, r * 0.62, x, y + r * 0.2, 1, vc(v, txt), 1.0);
                     f.draw(pm, 0, &caption(v), s * 0.032, x, y + r * 0.72, 1, txt, 0.7);
                 }
             }
@@ -862,10 +904,10 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                 let a0 = std::f32::consts::PI * 0.75;
                 arc(pm, mid, mid, r, a0, a0 + std::f32::consts::PI * 1.5, s * 0.055, rgba([255, 255, 255], 0.1));
                 arc(pm, mid, mid, r, a0, a0 + std::f32::consts::PI * 1.5 * v.frac.max(0.01), s * 0.055, rgba(heat(v), 1.0));
-                f.draw(pm, 1, &v.text, s * 0.22, mid, mid + s * 0.07, 1, txt, 1.0);
+                f.draw(pm, 1, &v.text, s * 0.22, mid, mid + s * 0.07, 1, vc(v, txt), 1.0);
                 f.draw(pm, 0, &caption(v), s * 0.055, mid, mid + s * 0.17, 1, txt, 0.65);
                 if let Some(v2) = get(1) {
-                    f.draw(pm, 1, &format!("{}{}", v2.text, unit_suffix(&v2.unit)), s * 0.06, mid, mid + s * 0.32, 1, acc, 0.95);
+                    f.draw(pm, 1, &format!("{}{}", v2.text, unit_suffix(&v2.unit)), s * 0.06, mid, mid + s * 0.32, 1, vc(v2, acc), 0.95);
                 }
             }
         }
@@ -882,7 +924,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                     let y = s * if k == 0 { 0.36 } else { 0.7 };
                     plate(pm, s * 0.18, y - s * 0.2, s * 0.64, s * 0.27);
                     f.draw(pm, 0, &short_label(&v.label), s * 0.05, mid, y - s * 0.12, 1, txt, 0.65);
-                    f.draw(pm, 1, &val_text(v), s * 0.16, mid, y + s * 0.03, 1, if k == 0 { heat(v) } else { txt }, 1.0);
+                    f.draw(pm, 1, &val_text(v), s * 0.16, mid, y + s * 0.03, 1, if k == 0 { heat(v) } else { vc(v, txt) }, 1.0);
                 }
             }
         }
@@ -902,7 +944,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
         }
         "custom" => {
             for w in &cfg.widgets {
-                draw_widget(pm, f, w, cfg, sensors, s, &heat);
+                draw_widget(pm, f, w, cfg, sensors, s, &heat, t);
             }
         }
         "clock" | "clock_sensors" => {
@@ -933,7 +975,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
     }
 }
 
-fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &ScreenConfig, sensors: &SensorState, s: f32, heat: &dyn Fn(&V) -> [u8; 3]) {
+fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &ScreenConfig, sensors: &SensorState, s: f32, heat: &dyn Fn(&V) -> [u8; 3], t: f32) {
     let (bw0, bh0) = widget_box(&w.kind);
     let size = w.size.clamp(0.2, 4.0);
     let (bw, bh) = (bw0 * size * s, bh0 * size * s);
@@ -942,12 +984,12 @@ fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &
     let acc = hex(&cfg.accent);
     let txt = hex(&cfg.text);
     let v = value_of(sensors, &w.sensor);
-    let col = match w.color.as_str() {
+    let col = vc(&v, match w.color.as_str() {
         "accent" => acc,
         "text" => txt,
         "heat" | "" => heat(&v),
         c => hex(c),
-    };
+    });
     let cap = if w.label.is_empty() { caption(&v) } else { w.label.to_uppercase() };
     let plate = |pm: &mut Pixmap, x: f32, y: f32, ww: f32, hh: f32| {
         if w.plate {
@@ -968,7 +1010,7 @@ fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &
             let a0 = std::f32::consts::PI * 0.75;
             arc(pm, cx, cy, r, a0, a0 + std::f32::consts::PI * 1.5, bw * 0.055, rgba([255, 255, 255], 0.12));
             arc(pm, cx, cy, r, a0, a0 + std::f32::consts::PI * 1.5 * v.frac.max(0.01), bw * 0.055, rgba(col, 1.0));
-            f.draw(pm, 1, &v.text, r * 0.62, cx, cy + r * 0.2, 1, txt, 1.0);
+            f.draw(pm, 1, &v.text, r * 0.62, cx, cy + r * 0.2, 1, vc(&v, txt), 1.0);
             f.draw(pm, 0, &cap, r * 0.2, cx, cy + r * 0.66, 1, txt, 0.7);
         }
         "bar" => {
@@ -997,6 +1039,14 @@ fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &
             f.draw(pm, 0, &cap, bh * 0.14, x0 + bw * 0.05, y0 + bh * 0.2, 0, txt, 0.7);
             f.draw(pm, 1, &val_text(&v), bh * 0.2, x0 + bw * 0.95, y0 + bh * 0.24, 2, col, 1.0);
             spark(pm, &v.history, x0 + bw * 0.05, y0 + bh * 0.32, bw * 0.9, bh * 0.58, col);
+        }
+        "ring" | "dial" | "rev" | "segments" | "frames" | "orb" => {
+            let mut rd = faces::read(sensors, &w.sensor);
+            rd.alert = text_alert(sensors, &w.sensor);
+            let f0 = f.outline;
+            f.outline = 0.0;
+            faces::part(pm, f, &w.kind, &rd, cx, cy, bw, bh, col, txt, &w.label, w.plate, t);
+            f.outline = f0;
         }
         _ => {}
     }
@@ -1027,17 +1077,118 @@ fn spark(pm: &mut Pixmap, h: &[f64], x: f32, y: f32, w: f32, hh: f32, c: [u8; 3]
     polyline(pm, &pts, 2.0, rgba(c, 0.6));
 }
 
+// ------------------------------------------------------------------ warnings
+
+thread_local! {
+    /// warnings for the screen being drawn on this thread, while numbers flash (not the whole screen)
+    static ALERT: std::cell::RefCell<Option<(Alerts, f32)>> = const { std::cell::RefCell::new(None) };
+}
+
+const ALERT_GREEN: [u8; 3] = [52, 199, 89];
+const ALERT_YELLOW: [u8; 3] = [255, 204, 0];
+const ALERT_RED: [u8; 3] = [255, 59, 48];
+
+/// Warning colour and strength for one reading this frame: red flashes fast, yellow pulses,
+/// green (only if asked for) stays on.
+fn alert_level(a: &Alerts, sensors: &SensorState, id: &str, t: f32) -> Option<([u8; 3], f32, u8)> {
+    let rule = a.rules.iter().find(|r| r.on && r.id == id)?;
+    let v = sensors.get(id)?.value;
+    if id == "fps" && v <= 1.0 {
+        return None; // no game in front
+    }
+    match rule.level(v) {
+        2 => Some((ALERT_RED, if (t * 3.0).fract() < 0.55 { 1.0 } else { 0.12 }, 2)),
+        1 => Some((ALERT_YELLOW, 0.35 + 0.65 * (0.5 + 0.5 * (t * std::f32::consts::TAU * 1.2).sin()), 1)),
+        _ if a.green => Some((ALERT_GREEN, 1.0, 0)),
+        _ => None,
+    }
+}
+
+fn text_alert(sensors: &SensorState, id: &str) -> Option<([u8; 3], f32)> {
+    ALERT.with(|c| c.borrow().as_ref().and_then(|(a, t)| alert_level(a, sensors, id, *t)).map(|(c, k, _)| (c, k)))
+}
+
+/// A value's colour, blended towards its warning colour while it warns.
+fn vc(v: &V, base: [u8; 3]) -> [u8; 3] {
+    match v.alert {
+        Some((c, k)) => mix(base, c, k),
+        None => base,
+    }
+}
+
+/// Whole-screen warning: the worst warning among this screen's readings tints and rims the screen.
+fn screen_alert(pm: &mut Pixmap, a: &Alerts, cfg: &ScreenConfig, sensors: &SensorState, round: bool, t: f32) {
+    let mut ids: Vec<String> = cfg.slots.iter().filter(|s| !s.is_empty()).cloned().collect();
+    if cfg.layout == "custom" && !cfg.background.starts_with("face:") {
+        ids = cfg.widgets.iter().map(|w| w.sensor.clone()).filter(|s| !s.is_empty()).collect();
+    }
+    if cfg.background.starts_with("face:") {
+        let (m, s2) = faces::pair(cfg, sensors);
+        let mut v = vec![m.id, s2.id];
+        if cfg.layout == "custom" {
+            v.extend(cfg.widgets.iter().map(|w| w.sensor.clone()).filter(|s| !s.is_empty()));
+        }
+        ids = v;
+    }
+    let worst = ids.iter().filter_map(|id| alert_level(a, sensors, id, t)).max_by_key(|x| x.2);
+    let Some((c, k, lvl)) = worst else { return };
+    let s = pm.width() as f32;
+    if lvl > 0 {
+        rect(pm, 0.0, 0.0, s, s, rgba(c, 0.30 * k));
+    }
+    let edge = if lvl == 0 { 0.5 } else { 0.9 * k };
+    if round {
+        for i in 0..6 {
+            let r = s * (0.497 - i as f32 * 0.008);
+            arc(pm, s / 2.0, s / 2.0, r, 0.0, std::f32::consts::TAU, s * 0.01, rgba(c, edge * (1.0 - i as f32 / 6.0)));
+        }
+    } else {
+        for i in 0..6 {
+            let d = s * (0.004 + i as f32 * 0.008);
+            let st = Stroke { width: s * 0.01, ..Default::default() };
+            if let Some(r) = Rect::from_xywh(d, d, s - 2.0 * d, s - 2.0 * d) {
+                let p = PathBuilder::from_rect(r);
+                pm.stroke_path(&p, &paint(rgba(c, edge * (1.0 - i as f32 / 6.0))), &st, Transform::identity(), None);
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------ frame
 
-pub fn render(f: &mut Fonts, st: &mut ScreenState, cfg: &ScreenConfig, sensors: &SensorState, size: u32, round: bool, t: f32) -> Pixmap {
+/// `alerts`: the warnings to flash on this screen (None for gallery pictures).
+pub fn render(f: &mut Fonts, st: &mut ScreenState, cfg: &ScreenConfig, sensors: &SensorState, size: u32, round: bool, t: f32, alerts: Option<&Alerts>) -> Pixmap {
     let mut pm = Pixmap::new(size, size).unwrap();
-    background(&mut pm, f, st, cfg, t);
-    if cfg.blur > 0.01 {
-        blur(&mut pm, (cfg.blur.clamp(0.0, 1.0) * size as f32 * 0.025).round() as usize);
+    let text_style = alerts.map(|a| a.style != "screen").unwrap_or(false);
+    ALERT.with(|c| *c.borrow_mut() = if text_style { alerts.map(|a| (a.clone(), t)) } else { None });
+    if let Some(name) = cfg.background.strip_prefix("face:") {
+        let (mut m, mut s2) = faces::pair(cfg, sensors);
+        m.alert = text_alert(sensors, &m.id);
+        s2.alert = text_alert(sensors, &s2.id);
+        let tf = t * cfg.speed.clamp(0.1, 4.0);
+        faces::draw(&mut pm, f, st, name, &m, &s2, sensors, round, tf, faces::O::from(cfg));
+        // parts added on top of a design in the design studio
+        if cfg.layout == "custom" && !cfg.widgets.is_empty() {
+            let s = size as f32;
+            let acc = hex(&cfg.accent);
+            let heat = |v: &V| vc(v, acc);
+            for w in &cfg.widgets {
+                draw_widget(&mut pm, f, w, cfg, sensors, s, &heat, tf);
+            }
+        }
+    } else {
+        background(&mut pm, f, st, cfg, t);
+        if cfg.blur > 0.01 {
+            blur(&mut pm, (cfg.blur.clamp(0.0, 1.0) * size as f32 * 0.025).round() as usize);
+        }
+        f.outline = if cfg.outline { 1.0 } else { 0.0 };
+        layout(&mut pm, f, cfg, sensors, round, t);
+        f.outline = 0.0;
     }
-    f.outline = if cfg.outline { 1.0 } else { 0.0 };
-    layout(&mut pm, f, cfg, sensors, round);
-    f.outline = 0.0;
+    ALERT.with(|c| *c.borrow_mut() = None);
+    if let Some(a) = alerts.filter(|a| a.style == "screen") {
+        screen_alert(&mut pm, a, cfg, sensors, round, t);
+    }
     if let Some((n, at)) = st.identify {
         if at.elapsed().as_secs_f32() < 4.0 {
             let s = size as f32;
@@ -1048,9 +1199,37 @@ pub fn render(f: &mut Fonts, st: &mut ScreenState, cfg: &ScreenConfig, sensors: 
         }
     }
     grade(&mut pm, cfg.contrast, cfg.saturation, cfg.gamma, cfg.black);
+    if !round && cfg.corner > 0.005 {
+        round_corners(&mut pm, cfg.corner);
+    }
     match cfg.rotation {
         90 | 180 | 270 => rotate(&pm, cfg.rotation),
         _ => pm,
+    }
+}
+
+/// Square screens: black out the corners outside a rounded rectangle (r = 0.5 makes a circle).
+fn round_corners(pm: &mut Pixmap, r: f32) {
+    let s = pm.width() as f32;
+    let rad = r.clamp(0.0, 0.5) * s;
+    let w = pm.width() as usize;
+    let data = pm.data_mut();
+    for y in 0..w {
+        let fy = y as f32 + 0.5;
+        let dy = if fy < rad { rad - fy } else if fy > s - rad { fy - (s - rad) } else { continue };
+        for x in 0..w {
+            let fx = x as f32 + 0.5;
+            let dx = if fx < rad { rad - fx } else if fx > s - rad { fx - (s - rad) } else { continue };
+            let d = (dx * dx + dy * dy).sqrt() - rad;
+            if d > -1.0 {
+                let k = (1.0 - (d + 1.0) / 2.0).clamp(0.0, 1.0); // 1 inside, 0 outside, soft over 2 px
+                let i = (y * w + x) * 4;
+                for c in 0..3 {
+                    data[i + c] = (data[i + c] as f32 * k) as u8;
+                }
+                data[i + 3] = 255;
+            }
+        }
     }
 }
 
