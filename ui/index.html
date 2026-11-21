@@ -37,6 +37,7 @@
     <button class="navbtn" data-page="overview" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
     <button class="navbtn" data-page="screens"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="10" height="10" rx="2"/><circle cx="17.5" cy="16.5" r="4"/></svg>Screens</button>
     <button class="navbtn" data-page="fans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 12c0-4 2-6 4.5-5.5M12 12c4 0 6 2 5.5 4.5M12 12c0 4-2 6-4.5 5.5M12 12c-4 0-6-2-5.5-4.5"/></svg>Fans and pump</button>
+    <button class="navbtn" data-page="lighting"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>Lighting</button>
     <button class="navbtn" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
     <div class="grow"></div>
     <div class="side-status" id="side-status"></div>
@@ -94,13 +95,16 @@
     <!-- SCREENS -->
     <section class="page" id="p-screens">
       <div class="page-head">
-        <div><h2>Screens</h2><p>Pick a screen, then choose what it shows.</p></div>
+        <div><h2>Screens</h2><p>Pick a screen, choose a design, then move things around if you like.</p></div>
         <div class="actions"><button class="btn" id="scr-identify">Identify screens</button></div>
       </div>
       <div class="pick" id="scr-pick"></div>
       <div class="scr-grid">
         <div class="box stage">
-          <img id="scr-stage" class="sq" alt="Live screen">
+          <div class="stage-wrap" id="scr-wrap">
+            <img id="scr-stage" class="sq" alt="Live screen">
+            <div class="overlay" id="scr-overlay" hidden></div>
+          </div>
           <div class="cap" id="scr-cap"></div>
           <div class="row">
             <div class="setrow" style="gap:8px"><button class="switch" role="switch" id="scr-enabled" aria-label="Screen on"></button><span class="small">Screen on</span></div>
@@ -108,19 +112,18 @@
         </div>
         <div class="opts">
           <div class="box">
-            <h3>Themes</h3>
-            <div class="themes" id="scr-themes"></div>
+            <h3>Designs <span class="muted">Shown with your live readings</span></h3>
+            <div class="designs" id="scr-designs"></div>
+            <div class="inline-name" style="margin-top:12px"><input type="text" id="scr-theme-name" placeholder="Name for this design" maxlength="32"><button class="btn" id="scr-save-theme">Save as my design</button></div>
           </div>
           <div class="box">
-            <h3>Readings <span class="muted" id="scr-slot-hint"></span></h3>
-            <div class="row2" style="margin-bottom:12px">
-              <label class="field"><span>Layout</span><select id="scr-layout"></select></label>
-              <label class="field"><span>Background</span><select id="scr-bg"></select></label>
-            </div>
-            <div class="slots" id="scr-slots"></div>
-            <div class="row2" id="scr-image-row" style="margin-top:12px" hidden>
-              <div class="field"><span>Picture or GIF</span><div class="inline-name"><button class="btn" id="scr-pick-image">Choose…</button><span class="small muted" id="scr-image-name" style="align-self:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div></div>
-            </div>
+            <div class="box-head"><h3>Layout</h3><button class="btn small" id="scr-edit-layout">Edit layout</button></div>
+            <div id="scr-layout-box"></div>
+          </div>
+          <div class="box">
+            <h3>Background</h3>
+            <div class="bgs" id="scr-bgs"></div>
+            <div id="scr-lianli"></div>
           </div>
           <div class="box">
             <h3>Look</h3>
@@ -149,10 +152,6 @@
               <div class="setrow" id="scr-link-row"><div class="t"><b>Same look on all LCD fans</b><span>Changes to one fan screen go to all three.</span></div><button class="switch" role="switch" id="scr-link"></button></div>
             </div>
           </div>
-          <div class="box">
-            <h3>Save as my theme</h3>
-            <div class="inline-name"><input type="text" id="scr-theme-name" placeholder="Theme name" maxlength="32"><button class="btn primary" id="scr-save-theme">Save theme</button></div>
-          </div>
         </div>
       </div>
     </section>
@@ -166,6 +165,31 @@
       <div class="fan-grid">
         <div class="groups" id="fan-groups"></div>
         <div class="box" id="fan-editor"></div>
+      </div>
+    </section>
+
+    <!-- LIGHTING -->
+    <section class="page" id="p-lighting">
+      <div class="page-head">
+        <div><h2>Lighting</h2><p>Effects for the wireless fans and pump. The fans play them on their own once sent.</p></div>
+        <div class="actions"><button class="btn" id="lt-all">Use on every group</button></div>
+      </div>
+      <div id="lt-banner"></div>
+      <div class="fan-grid">
+        <div style="display:grid;gap:16px;align-content:start">
+          <div class="groups" id="lt-groups"></div>
+          <div class="box">
+            <h3>OpenRGB</h3>
+            <div class="src" style="margin-bottom:10px"><span class="dot" id="orgb-dot"></span><span id="orgb-state">–</span></div>
+            <ol class="steps small muted">
+              <li>Open OpenRGB and go to the <b>SDK Client</b> tab.</li>
+              <li>Type IP <b>127.0.0.1</b> and port <b id="orgb-port">6743</b>, then click <b>Connect</b>.</li>
+              <li>The fans and pump appear as devices. Colours you set there switch that group to <b>OpenRGB</b> here.</li>
+            </ol>
+            <div class="setrow" style="margin-top:10px"><div class="t"><b>Let OpenRGB control the lights</b><span>Only programs on this PC can connect. Changes apply when Vane next starts.</span></div><button class="switch" role="switch" id="orgb-on"></button></div>
+          </div>
+        </div>
+        <div class="box" id="lt-editor"></div>
       </div>
     </section>
 

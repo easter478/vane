@@ -34,6 +34,39 @@ pub struct Status {
     pub lconnect_running: bool,
     pub memory_mb: f64,
     pub paused: bool,
+    /// lighting state per wireless MAC, in words ("Playing", or what went wrong)
+    pub lighting: BTreeMap<String, String>,
+    /// OpenRGB server state, in words
+    pub openrgb: String,
+    pub openrgb_clients: u32,
+}
+
+/// Colours OpenRGB sent for one device, with a change counter.
+#[derive(Clone, Default)]
+pub struct DirectRgb {
+    pub colors: Vec<[u8; 3]>,
+    pub version: u64,
+}
+
+struct LightState {
+    sig: u64,
+    idx: [u8; 4],
+    at: Instant,
+    tries: u8,
+    mb_off_at: Option<Instant>,
+    confirmed: bool,
+}
+
+/// One line in %APPDATA%\Vane\lighting.log (kept short), so lighting problems can be traced.
+fn light_log(msg: &str) {
+    use std::io::Write;
+    let p = crate::config::dir().join("lighting.log");
+    if std::fs::metadata(&p).map(|m| m.len() > 200_000).unwrap_or(false) {
+        let _ = std::fs::remove_file(&p);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+        let _ = writeln!(f, "{} {msg}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    }
 }
 
 pub struct Engine {
@@ -45,6 +78,7 @@ pub struct Engine {
     /// While true every device is let go of (L-Connect turned back on).
     pub paused: Arc<AtomicBool>,
     pub cfg_changed: Arc<AtomicBool>,
+    pub rgb_direct: Arc<Mutex<HashMap<String, DirectRgb>>>,
 }
 
 fn is_static(c: &ScreenConfig) -> bool {
@@ -61,6 +95,7 @@ impl Engine {
             identify: Arc::new(Mutex::new(HashMap::new())),
             paused: Arc::new(AtomicBool::new(false)),
             cfg_changed: Arc::new(AtomicBool::new(false)),
+            rgb_direct: Arc::new(Mutex::new(HashMap::new())),
         });
         // sensors, once a second
         {
@@ -92,6 +127,7 @@ impl Engine {
             let e = e.clone();
             std::thread::Builder::new().name("wireless".into()).spawn(move || e.wireless_loop()).ok();
         }
+        crate::openrgb::start(e.clone());
         e
     }
 
@@ -283,10 +319,16 @@ impl Engine {
     fn wireless_loop(self: Arc<Self>) {
         let mut dongle: Option<Dongle> = None;
         let mut last_try = Instant::now() - Duration::from_secs(60);
+        let mut last_poll = Instant::now() - Duration::from_secs(60);
+        let mut lights: HashMap<String, LightState> = HashMap::new();
+        // fan targets: (logical duty, duty the device should report, last sent)
+        let mut targets: HashMap<[u8; 6], ([u8; 4], [u8; 4], Instant)> = HashMap::new();
+        let mut last_diag = Instant::now() - Duration::from_secs(60);
         loop {
             let t0 = Instant::now();
             if self.paused.load(Ordering::Relaxed) {
                 dongle = None;
+                lights.clear();
             } else if dongle.is_none() && last_try.elapsed() > Duration::from_secs(10) {
                 last_try = Instant::now();
                 match Dongle::open() {
@@ -300,19 +342,32 @@ impl Engine {
                     }
                 }
             }
+            // poll and fan speeds once a second; lighting is checked every tick so OpenRGB feels live
             if let Some(d) = dongle.as_mut() {
-                match d.poll() {
-                    Ok(()) => {
-                        self.publish_wireless(&d.devices);
-                        self.apply_fans(d);
-                    }
-                    Err(e) => {
-                        self.status.write().wireless_error = Some(format!("{e:#}"));
-                        dongle = None;
+                if last_poll.elapsed() >= Duration::from_millis(1000) {
+                    last_poll = Instant::now();
+                    match d.poll() {
+                        Ok(()) => {
+                            self.publish_wireless(&d.devices);
+                            self.apply_fans(d, &mut targets);
+                            if last_diag.elapsed() > Duration::from_secs(10) {
+                                last_diag = Instant::now();
+                                let _ = std::fs::write(crate::config::dir().join("wireless.txt"), format!("{}\nmaster ch={}\n{}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), d.master_channel, d.describe()));
+                            }
+                        }
+                        Err(e) => {
+                            self.status.write().wireless_error = Some(format!("{e:#}"));
+                            dongle = None;
+                            lights.clear();
+                        }
                     }
                 }
             }
-            if let Some(rest) = Duration::from_millis(1000).checked_sub(t0.elapsed()) {
+            if let Some(d) = dongle.as_mut() {
+                Self::converge_fans(d, &mut targets);
+                self.apply_lighting(d, &mut lights);
+            }
+            if let Some(rest) = Duration::from_millis(100).checked_sub(t0.elapsed()) {
                 std::thread::sleep(rest);
             }
         }
@@ -330,7 +385,7 @@ impl Engine {
                         g.follow = "coolant".into();
                         g.curve = [(28., 30.), (32., 40.), (36., 60.), (40., 85.), (44., 100.)].iter().map(|&(t, p)| crate::config::CurvePoint { t, p }).collect();
                     } else {
-                        g.follow = "gpu.temp".into();
+                        g.follow = "hottest".into();
                     }
                     cfg.fans.insert(d.mac.clone(), g);
                     changed = true;
@@ -363,13 +418,28 @@ impl Engine {
         self.status.write().wireless = devs.to_vec();
     }
 
-    fn apply_fans(&self, d: &mut Dongle) {
+    /// Like L-Connect, keep re-sending a fan speed until the device reports it back (radio frames get lost).
+    fn converge_fans(d: &mut Dongle, targets: &mut HashMap<[u8; 6], ([u8; 4], [u8; 4], Instant)>) {
+        let devices = d.devices.clone();
+        for dev in &devices {
+            let Some((duty, want, at)) = targets.get(&dev.mac_raw).copied() else { continue };
+            let off = want.iter().zip(dev.pwm.iter()).any(|(a, b)| a.abs_diff(*b) > 5);
+            if off && at.elapsed() >= Duration::from_millis(300) {
+                if let Ok(w) = d.set_pwm(&dev.mac_raw, duty) {
+                    targets.insert(dev.mac_raw, (duty, w, Instant::now()));
+                }
+            }
+        }
+    }
+
+    fn apply_fans(&self, d: &mut Dongle, targets: &mut HashMap<[u8; 6], ([u8; 4], [u8; 4], Instant)>) {
         let cfg = self.cfg.read().fans.clone();
         let sensors = self.sensors.read();
         let mut sends: Vec<([u8; 6], [u8; 4])> = Vec::new();
         for dev in &d.devices {
             let Some(g) = cfg.get(&dev.mac) else { continue };
             if g.mode == "auto" {
+                targets.remove(&dev.mac_raw);
                 continue;
             }
             let pct = if g.mode == "fixed" {
@@ -391,7 +461,134 @@ impl Engine {
         }
         drop(sensors);
         for (mac, pwm) in sends {
-            let _ = d.set_pwm(&mac, pwm);
+            match d.set_pwm(&mac, pwm) {
+                Ok(w) => {
+                    targets.insert(mac, (pwm, w, Instant::now()));
+                }
+                Err(e) => light_log(&format!("fan speed for {} not sent: {e:#}", crate::wireless::hex(&mac))),
+            }
+        }
+    }
+
+    fn apply_lighting(&self, d: &mut Dongle, st: &mut HashMap<String, LightState>) {
+        use std::hash::{Hash, Hasher};
+        let cfg = self.cfg.read().lighting.clone();
+        let hottest = self.sensors.read().get("vane.hottest").map(|r| r.value);
+        let devices = d.devices.clone();
+        let mut notes: Vec<(String, Option<String>)> = Vec::new();
+        for dev in &devices {
+            let Some(l) = cfg.get(&dev.mac).cloned() else { continue };
+            if l.effect == "auto" {
+                st.remove(&dev.mac);
+                notes.push((dev.mac.clone(), None));
+                continue;
+            }
+            if dev.led_zones().is_empty() {
+                notes.push((dev.mac.clone(), Some("Vane doesn't know this device's lights yet".into())));
+                continue;
+            }
+            // temperature colour moves in 3 °C steps, so the fans aren't re-sent all the time
+            let temp = (l.effect == "temperature").then(|| hottest.map(|t| (t / 3.0).round() * 3.0)).flatten();
+            let direct = if l.effect == "openrgb" { self.rgb_direct.lock().get(&dev.mac).cloned() } else { None };
+            if l.effect == "openrgb" && direct.is_none() {
+                notes.push((dev.mac.clone(), Some("Waiting for colours from OpenRGB".into())));
+                continue;
+            }
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            l.hash(&mut h);
+            temp.map(|t| t as i64).hash(&mut h);
+            direct.as_ref().map(|x| x.version).hash(&mut h);
+            dev.led_zones().hash(&mut h);
+            let sig = h.finish();
+            let s = st.entry(dev.mac.clone()).or_insert(LightState { sig: 0, idx: [0; 4], at: Instant::now() - Duration::from_secs(60), tries: 0, mb_off_at: None, confirmed: false });
+            let changed = s.sig != sig;
+            // the device stopped playing ours (power cycle, or the upload was missed): send it again a few times
+            let lost = !changed && dev.effect_index != s.idx && s.at.elapsed() > Duration::from_secs(6) && s.tries < 4;
+            if !changed && !lost {
+                if dev.effect_index == s.idx {
+                    s.tries = 0;
+                    if !s.confirmed {
+                        s.confirmed = true;
+                        light_log(&format!("{} is playing {} ({:02x?})", dev.mac, l.effect, s.idx));
+                    }
+                }
+                continue;
+            }
+            let min_gap = match l.effect.as_str() {
+                "openrgb" => Duration::from_millis(100),
+                "temperature" => Duration::from_secs(8),
+                _ => Duration::from_millis(300),
+            };
+            // after failures, back off so a device that won't take it isn't flooded
+            let min_gap = if s.tries > 0 { min_gap.max(Duration::from_secs(5 * s.tries.min(6) as u64)) } else { min_gap };
+            if s.at.elapsed() < min_gap {
+                continue;
+            }
+            if dev.mb_sync {
+                // the fans follow the motherboard's RGB header; switch that off first
+                if s.mb_off_at.is_none_or(|t| t.elapsed() > Duration::from_millis(2500)) {
+                    light_log(&format!("{} follows motherboard RGB; asking it to stop", dev.mac));
+                    let _ = d.set_mb_sync_off(&dev.mac_raw);
+                    s.mb_off_at = Some(Instant::now());
+                }
+                notes.push((dev.mac.clone(), Some("Turning off motherboard RGB sync".into())));
+                continue;
+            }
+            let mut result: Result<[u8; 4], String> = Err("nothing to send".into());
+            for div in [1usize, 2, 4, 8] {
+                let anim = match &direct {
+                    Some(x) => {
+                        let total: usize = dev.led_zones().iter().sum();
+                        let mut c = x.colors.clone();
+                        c.resize(total, [0, 0, 0]);
+                        Some(crate::lighting::Anim { frames: vec![c], interval_ms: 1000 })
+                    }
+                    None => crate::lighting::build(dev, &l, temp, div),
+                };
+                let Some(anim) = anim else { break };
+                match d.upload_rgb(&dev.mac_raw, &anim.frames, anim.interval_ms) {
+                    Ok(idx) => {
+                        result = Ok(idx);
+                        break;
+                    }
+                    Err(e) if e.to_string().contains("too big") && anim.frames.len() > 2 => continue,
+                    Err(e) => {
+                        result = Err(format!("{e:#}"));
+                        break;
+                    }
+                }
+            }
+            s.at = Instant::now();
+            match result {
+                Ok(idx) => {
+                    if l.effect != "openrgb" {
+                        light_log(&format!("{} sent {} ({:02x?}); device had {:02x?}", dev.mac, l.effect, idx, dev.effect_index));
+                    }
+                    s.confirmed = false;
+                    s.idx = idx;
+                    s.sig = sig;
+                    s.tries = if lost { s.tries + 1 } else { 0 };
+                    notes.push((dev.mac.clone(), Some("Playing".into())));
+                }
+                Err(e) => {
+                    light_log(&format!("{} {} failed: {e}", dev.mac, l.effect));
+                    s.tries = s.tries.saturating_add(1);
+                    notes.push((dev.mac.clone(), Some(e)));
+                }
+            }
+        }
+        if !notes.is_empty() {
+            let mut status = self.status.write();
+            for (mac, n) in notes {
+                match n {
+                    Some(n) => {
+                        status.lighting.insert(mac, n);
+                    }
+                    None => {
+                        status.lighting.remove(&mac);
+                    }
+                }
+            }
         }
     }
 

@@ -5,10 +5,15 @@
 
 mod config;
 mod engine;
+mod library;
+mod lighting;
+mod openrgb;
 mod render;
 mod sensors;
 mod system;
+mod tinyuz;
 mod usb;
+mod video;
 mod wireless;
 
 use base64::Engine as _;
@@ -56,7 +61,12 @@ fn meta() -> serde_json::Value {
     let backgrounds: Vec<serde_json::Value> = render::BACKGROUNDS.iter().map(|(id, n)| serde_json::json!({"id": id, "name": n})).collect();
     let layouts: Vec<serde_json::Value> = render::LAYOUTS.iter().map(|(id, n, slots)| serde_json::json!({"id": id, "name": n, "slots": slots})).collect();
     let presets: Vec<serde_json::Value> = ["quiet", "balanced", "perf", "full"].iter().map(|p| serde_json::json!({"id": p, "curve": config::preset(p)})).collect();
+    let effects: Vec<serde_json::Value> = lighting::EFFECTS.iter().map(|(id, n, c)| serde_json::json!({"id": id, "name": n, "colors": c})).collect();
+    let widgets: Vec<serde_json::Value> = render::WIDGETS.iter().map(|(id, n, w, h)| serde_json::json!({"id": id, "name": n, "w": w, "h": h})).collect();
     serde_json::json!({
+        "effects": effects,
+        "widgets": widgets,
+        "lianli_available": library::available(),
         "themes": themes,
         "backgrounds": backgrounds,
         "layouts": layouts,
@@ -117,6 +127,64 @@ fn pick_image() -> Option<String> {
 }
 
 #[tauri::command]
+fn pick_video() -> Option<String> {
+    rfd::FileDialog::new()
+        .add_filter("Videos", &["mp4", "avi", "wmv", "mov", "mkv", "m4v"])
+        .set_title("Choose a video")
+        .pick_file()
+        .map(|p| p.display().to_string())
+}
+
+/// Render designs as small pictures (with live readings) for the gallery and pickers.
+#[tauri::command]
+async fn render_previews(e: State<'_, Eng>, configs: Vec<(String, config::ScreenConfig)>, round: bool, size: Option<u32>) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let e = e.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let size = size.unwrap_or(220).clamp(64, 480);
+        let mut fonts = render::Fonts::load();
+        let mut out = std::collections::BTreeMap::new();
+        for (id, cfg) in configs {
+            let mut st = render::ScreenState::new(id.bytes().fold(7u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)));
+            // run the animation for a moment first so rain, particles and waves have filled in
+            let warm = if matches!(cfg.background.as_str(), "carbon" | "solid" | "image") { 1 } else { 40 };
+            let mut pm = None;
+            for k in 0..warm {
+                let s = e.sensors.read();
+                pm = Some(render::render(&mut fonts, &mut st, &cfg, &s, size, round, 1.0 + k as f32 * 0.08));
+            }
+            if let Some(pm) = pm {
+                out.insert(id, format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(render::jpeg(&pm, 60_000))));
+            }
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Turn a design's ready-made layout into movable widgets, so it can be edited.
+#[tauri::command]
+fn preset_widgets(config: config::ScreenConfig, round: bool) -> Vec<config::Widget> {
+    render::preset_widgets(&config, round)
+}
+
+#[tauri::command]
+async fn import_lianli() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(library::import).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn lianli_library() -> Result<Vec<library::Item>, String> {
+    tauri::async_runtime::spawn_blocking(library::list).await.map_err(|e| e.to_string())
+}
+
+/// `--page=<name>[:edit]` opens the window on that page (used for screenshots).
+#[tauri::command]
+fn start_page() -> Option<String> {
+    std::env::args().find_map(|a| a.strip_prefix("--page=").map(|s| s.to_string()))
+}
+
+#[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
 }
@@ -135,7 +203,7 @@ fn main() {
 
     let app = tauri::Builder::default()
         .manage(engine.clone())
-        .invoke_handler(tauri::generate_handler![snapshot, meta, set_config, preview, identify, lconnect, resume, pick_image, quit])
+        .invoke_handler(tauri::generate_handler![snapshot, meta, set_config, preview, identify, lconnect, resume, pick_image, pick_video, render_previews, preset_widgets, import_lianli, lianli_library, start_page, quit])
         .setup(move |app| {
             let open = MenuItemBuilder::with_id("open", "Open Vane").build(app)?;
             let screens = CheckMenuItemBuilder::with_id("screens", "Screens on").checked(true).build(app)?;

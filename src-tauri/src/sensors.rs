@@ -36,6 +36,8 @@ pub struct Sources {
     pub hwinfo_shared_memory: bool,
     pub hwinfo_gadget: usize,
     pub game: Option<String>,
+    /// NVIDIA GPU read straight from the driver (NVML), like the Stream Deck "System Vitals" plugin
+    pub nvidia: Option<String>,
 }
 
 pub type Sensors = Arc<RwLock<SensorState>>;
@@ -65,6 +67,7 @@ pub const SMART: &[(&str, &str, &str, &[&str])] = &[
     ("fan.radiator", "Radiator fans", "RPM", &["lianli.fans.radiator"]),
     ("fan.lcd", "LCD fans", "RPM", &["lianli.fans.lcd"]),
     ("drive.temp", "Drive temperature", "°C", &["|drive temperature"]),
+    ("hottest", "Hottest of CPU and GPU", "°C", &["vane.hottest"]),
 ];
 
 pub fn smart_meta(id: &str) -> Option<(&'static str, &'static str)> {
@@ -122,6 +125,7 @@ pub fn poll(state: &Sensors, cpu: &mut CpuMeter) {
             put(&mut map, "rtss.fps", "Framerate", "RTSS", fps, "FPS");
             put(&mut map, "rtss.frametime", "Frame Time", "RTSS", ft, "ms");
         }
+        src.nvidia = nvidia::read(&mut map);
         let sm = win::hwinfo_shared_memory(&mut map);
         src.hwinfo_shared_memory = sm;
         if !sm {
@@ -138,6 +142,11 @@ pub fn poll(state: &Sensors, cpu: &mut CpuMeter) {
     }
     st.readings = map;
     st.sources = src;
+    // case fans do best following whichever of CPU and GPU is hotter right now
+    let hot = ["cpu.temp", "gpu.temp"].iter().filter_map(|id| st.get(id)).map(|r| r.value).fold(f64::NAN, f64::max);
+    if hot.is_finite() {
+        put(&mut st.readings, "vane.hottest", "Hottest of CPU and GPU", "Vane", hot, "°C");
+    }
     for (id, ..) in SMART {
         if let Some(r) = st.get(id) {
             let h = st.history.entry(id.to_string()).or_default();
@@ -359,5 +368,126 @@ mod win {
             n += 1;
         }
         n
+    }
+}
+
+
+/// NVIDIA's own monitoring library (nvml.dll, installed with the driver). Gives GPU temperature,
+/// power, load, clocks, VRAM and fan without HWiNFO. GeForce cards don't report core voltage here.
+#[cfg(windows)]
+mod nvidia {
+    use super::{put, Reading};
+    use std::collections::BTreeMap;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+    type Dev = *mut std::ffi::c_void;
+    #[repr(C)]
+    #[derive(Default)]
+    struct Util {
+        gpu: u32,
+        memory: u32,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct MemInfo {
+        total: u64,
+        free: u64,
+        used: u64,
+    }
+    struct Nvml {
+        dev: usize,
+        name: String,
+        temp: unsafe extern "C" fn(Dev, u32, *mut u32) -> i32,
+        power: unsafe extern "C" fn(Dev, *mut u32) -> i32,
+        util: unsafe extern "C" fn(Dev, *mut Util) -> i32,
+        clock: unsafe extern "C" fn(Dev, u32, *mut u32) -> i32,
+        mem: unsafe extern "C" fn(Dev, *mut MemInfo) -> i32,
+        fan: unsafe extern "C" fn(Dev, *mut u32) -> i32,
+    }
+    unsafe impl Send for Nvml {}
+    unsafe impl Sync for Nvml {}
+
+    fn load() -> Option<Nvml> {
+        unsafe {
+            let w: Vec<u16> = "nvml.dll".encode_utf16().chain([0]).collect();
+            let lib = LoadLibraryW(w.as_ptr());
+            if lib.is_null() {
+                return None;
+            }
+            macro_rules! sym {
+                ($n:literal) => {
+                    std::mem::transmute(GetProcAddress(lib, concat!($n, "\0").as_ptr())?)
+                };
+            }
+            let init: unsafe extern "C" fn() -> i32 = sym!("nvmlInit_v2");
+            if init() != 0 {
+                return None;
+            }
+            let by_index: unsafe extern "C" fn(u32, *mut Dev) -> i32 = sym!("nvmlDeviceGetHandleByIndex_v2");
+            let mut dev: Dev = std::ptr::null_mut();
+            if by_index(0, &mut dev) != 0 {
+                return None;
+            }
+            let get_name: unsafe extern "C" fn(Dev, *mut u8, u32) -> i32 = sym!("nvmlDeviceGetName");
+            let mut buf = [0u8; 96];
+            let name = if get_name(dev, buf.as_mut_ptr(), buf.len() as u32) == 0 {
+                let e = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+                String::from_utf8_lossy(&buf[..e]).to_string()
+            } else {
+                "NVIDIA GPU".into()
+            };
+            Some(Nvml {
+                dev: dev as usize,
+                name,
+                temp: sym!("nvmlDeviceGetTemperature"),
+                power: sym!("nvmlDeviceGetPowerUsage"),
+                util: sym!("nvmlDeviceGetUtilizationRates"),
+                clock: sym!("nvmlDeviceGetClockInfo"),
+                mem: sym!("nvmlDeviceGetMemoryInfo"),
+                fan: sym!("nvmlDeviceGetFanSpeed"),
+            })
+        }
+    }
+
+    pub fn read(map: &mut BTreeMap<String, Reading>) -> Option<String> {
+        static NV: OnceLock<Option<Nvml>> = OnceLock::new();
+        let nv = NV.get_or_init(load).as_ref()?;
+        let d = nv.dev as Dev;
+        let g = format!("GPU · {} (driver)", nv.name);
+        unsafe {
+            let mut v = 0u32;
+            if (nv.temp)(d, 0, &mut v) == 0 {
+                put(map, "nv.temp", "GPU Temperature", &g, v as f64, "°C");
+            }
+            if (nv.power)(d, &mut v) == 0 {
+                put(map, "nv.power", "GPU Power", &g, (v as f64 / 100.0).round() / 10.0, "W");
+            }
+            let mut u = Util::default();
+            if (nv.util)(d, &mut u) == 0 {
+                put(map, "nv.load", "GPU Core Load", &g, u.gpu as f64, "%");
+            }
+            if (nv.clock)(d, 0, &mut v) == 0 {
+                put(map, "nv.clock", "GPU Clock", &g, v as f64, "MHz");
+            }
+            if (nv.clock)(d, 2, &mut v) == 0 {
+                put(map, "nv.memclock", "GPU Memory Clock", &g, v as f64, "MHz");
+            }
+            let mut m = MemInfo::default();
+            if (nv.mem)(d, &mut m) == 0 {
+                put(map, "nv.vram", "GPU Memory Allocated", &g, (m.used / 1_048_576) as f64, "MB");
+            }
+            if (nv.fan)(d, &mut v) == 0 {
+                put(map, "nv.fan", "GPU Fan", &g, v as f64, "%");
+            }
+        }
+        Some(nv.name.clone())
+    }
+}
+
+#[cfg(not(windows))]
+mod nvidia {
+    pub fn read(_: &mut std::collections::BTreeMap<String, super::Reading>) -> Option<String> {
+        None
     }
 }

@@ -285,12 +285,13 @@ pub struct ScreenState {
     matrix: Vec<(f32, f32, usize, Vec<char>)>, // y, speed, length, glyphs
     matrix_size: u32,
     image: Option<(String, Vec<Pixmap>, Vec<u32>)>, // path, frames, delays (ms)
+    video: Option<crate::video::Video>,
     pub identify: Option<(u8, std::time::Instant)>,
 }
 
 impl ScreenState {
     pub fn new(seed: u64) -> Self {
-        Self { rng: Rng(seed | 1), matrix: Vec::new(), matrix_size: 0, image: None, identify: None }
+        Self { rng: Rng(seed | 1), matrix: Vec::new(), matrix_size: 0, image: None, video: None, identify: None }
     }
 }
 
@@ -308,6 +309,7 @@ pub const BACKGROUNDS: &[(&str, &str)] = &[
     ("carbon", "Carbon"),
     ("solid", "Solid colour"),
     ("image", "Picture or GIF"),
+    ("video", "Video"),
 ];
 
 const KATAKANA: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ0123456789";
@@ -479,6 +481,16 @@ fn background(pm: &mut Pixmap, f: &mut Fonts, st: &mut ScreenState, cfg: &Screen
             pm.fill(Color::BLACK);
             draw_image(pm, st, &cfg.image, t / sp);
         }
+        "video" => {
+            pm.fill(Color::BLACK);
+            let size = pm.width();
+            if st.video.as_ref().is_none_or(|v| v.path != cfg.image || v.size() != size) {
+                st.video = (!cfg.image.is_empty()).then(|| crate::video::Video::new(&cfg.image, size));
+            }
+            if let Some(frame) = st.video.as_mut().and_then(|v| v.frame(cfg.speed)) {
+                pm.draw_pixmap(0, 0, frame.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+            }
+        }
         _ => {
             let c = hex(&cfg.solid);
             pm.fill(rgba(c, 1.0));
@@ -575,6 +587,82 @@ fn gif_delays(path: &str) -> Vec<u32> {
 
 // ------------------------------------------------------------------ layouts
 
+/// Widget kinds for custom layouts: (id, name, box width, box height) at size 1, as parts of the screen.
+pub const WIDGETS: &[(&str, &str, f32, f32)] = &[
+    ("value", "Number", 0.42, 0.22),
+    ("gauge", "Gauge", 0.34, 0.34),
+    ("bar", "Bar", 0.7, 0.13),
+    ("clock", "Clock", 0.7, 0.26),
+    ("date", "Date", 0.5, 0.08),
+    ("text", "Text", 0.6, 0.09),
+    ("graph", "Graph", 0.6, 0.2),
+];
+
+pub fn widget_box(kind: &str) -> (f32, f32) {
+    WIDGETS.iter().find(|w| w.0 == kind).map(|w| (w.2, w.3)).unwrap_or((0.4, 0.2))
+}
+
+/// The widgets that reproduce a preset layout, so any design can be opened in the layout editor.
+pub fn preset_widgets(cfg: &ScreenConfig, round: bool) -> Vec<crate::config::Widget> {
+    use crate::config::Widget;
+    let slot = |i: usize| cfg.slots.get(i).cloned().unwrap_or_default();
+    let w = |kind: &str, sensor: String, x: f32, y: f32, size: f32, color: &str| Widget { kind: kind.into(), sensor, x, y, size, color: color.into(), label: String::new(), plate: cfg.plates };
+    let mut out = Vec::new();
+    match cfg.layout.as_str() {
+        "gaming" => {
+            out.push(w("value", slot(0), 0.5, if round { 0.35 } else { 0.27 }, 1.6, "accent"));
+            let cells: [(f32, f32); 4] = if round { [(0.31, 0.6), (0.69, 0.6), (0.31, 0.78), (0.69, 0.78)] } else { [(0.27, 0.6), (0.73, 0.6), (0.27, 0.82), (0.73, 0.82)] };
+            for (k, (x, y)) in cells.iter().enumerate() {
+                out.push(w("value", slot(k + 1), *x, *y, if round { 0.8 } else { 0.95 }, "heat"));
+            }
+        }
+        "system" => {
+            let cells: [(f32, f32); 4] = if round { [(0.33, 0.35), (0.67, 0.35), (0.33, 0.66), (0.67, 0.66)] } else { [(0.27, 0.27), (0.73, 0.27), (0.27, 0.73), (0.73, 0.73)] };
+            for (k, (x, y)) in cells.iter().enumerate() {
+                out.push(w("gauge", slot(k), *x, *y, if round { 0.85 } else { 1.15 }, "heat"));
+            }
+        }
+        "ring" => {
+            out.push(w("gauge", slot(0), 0.5, 0.48, if round { 2.0 } else { 2.3 }, "heat"));
+            if !slot(1).is_empty() {
+                out.push(w("value", slot(1), 0.5, 0.84, 0.6, "accent"));
+            }
+        }
+        "big" => out.push(w("value", slot(0), 0.5, 0.5, 2.0, "heat")),
+        "dual" => {
+            out.push(w("value", slot(0), 0.5, 0.33, 1.4, "heat"));
+            out.push(w("value", slot(1), 0.5, 0.67, 1.4, "text"));
+        }
+        "bars" => {
+            let n = cfg.slots.len().clamp(1, 5);
+            let top = if round { 0.22 } else { 0.1 };
+            let step = (1.0 - 2.0 * top) / n as f32;
+            for k in 0..n {
+                out.push(w("bar", slot(k), 0.5, top + (k as f32 + 0.5) * step, if round { 0.85 } else { 1.1 }, "heat"));
+            }
+        }
+        "clock" => {
+            out.push(w("clock", String::new(), 0.5, 0.44, 1.0, "accent"));
+            out.push(w("date", String::new(), 0.5, 0.6, 1.0, "text"));
+            if !slot(0).is_empty() {
+                out.push(w("value", slot(0), 0.5, 0.78, 0.6, "heat"));
+            }
+        }
+        "clock_sensors" => {
+            out.push(w("clock", String::new(), 0.5, 0.33, 1.0, "accent"));
+            out.push(w("date", String::new(), 0.5, 0.48, 1.0, "text"));
+            let xs: [f32; 3] = if round { [0.3, 0.5, 0.7] } else { [0.2, 0.5, 0.8] };
+            for (k, x) in xs.iter().enumerate() {
+                out.push(w("value", slot(k), *x, 0.72, 0.6, "heat"));
+            }
+        }
+        "custom" => return cfg.widgets.clone(),
+        _ => {}
+    }
+    out.retain(|x| !(matches!(x.kind.as_str(), "value" | "gauge" | "bar" | "graph") && x.sensor.is_empty()));
+    out
+}
+
 pub const LAYOUTS: &[(&str, &str, usize)] = &[
     ("gaming", "Gaming: FPS + 4 readings", 5),
     ("system", "System: 4 gauges", 4),
@@ -585,6 +673,7 @@ pub const LAYOUTS: &[(&str, &str, usize)] = &[
     ("clock", "Clock", 1),
     ("clock_sensors", "Clock + 3 readings", 3),
     ("none", "Background only", 0),
+    ("custom", "My layout", 0),
 ];
 
 struct V {
@@ -684,7 +773,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                 if let Some(v) = get(k + 1) {
                     let (w, h) = if round { (s * 0.34, s * 0.16) } else { (s * 0.42, s * 0.19) };
                     plate(pm, cx * s - w / 2.0, cy * s - h * 0.5, w, h);
-                    f.draw(pm, 1, &format!("{}{}", v.text, unit_suffix(&v.unit)), s * if round { 0.075 } else { 0.085 }, cx * s, cy * s + h * 0.12, 1, heat(v), 1.0);
+                    f.draw(pm, 1, &val_text(v), s * if round { 0.075 } else { 0.085 }, cx * s, cy * s + h * 0.12, 1, heat(v), 1.0);
                     f.draw(pm, 0, &short_label(&v.label), s * 0.036, cx * s, cy * s + h * 0.38, 1, txt, 0.7);
                 }
             }
@@ -735,7 +824,7 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                     let y = s * if k == 0 { 0.36 } else { 0.7 };
                     plate(pm, s * 0.18, y - s * 0.2, s * 0.64, s * 0.27);
                     f.draw(pm, 0, &short_label(&v.label), s * 0.05, mid, y - s * 0.12, 1, txt, 0.65);
-                    f.draw(pm, 1, &format!("{}{}", v.text, unit_suffix(&v.unit)), s * 0.16, mid, y + s * 0.03, 1, if k == 0 { heat(v) } else { txt }, 1.0);
+                    f.draw(pm, 1, &val_text(v), s * 0.16, mid, y + s * 0.03, 1, if k == 0 { heat(v) } else { txt }, 1.0);
                 }
             }
         }
@@ -751,6 +840,11 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
                 f.draw(pm, 1, &format!("{} {}", v.text, v.unit), s * 0.055, x0 + w, y - step * 0.06, 2, heat(v), 1.0);
                 rrect(pm, x0, y + step * 0.06, w, step * 0.14, step * 0.07, rgba([255, 255, 255], 0.12));
                 rrect(pm, x0, y + step * 0.06, (w * v.frac).max(step * 0.14), step * 0.14, step * 0.07, rgba(heat(v), 1.0));
+            }
+        }
+        "custom" => {
+            for w in &cfg.widgets {
+                draw_widget(pm, f, w, cfg, sensors, s, &heat);
             }
         }
         "clock" | "clock_sensors" => {
@@ -779,6 +873,81 @@ fn layout(pm: &mut Pixmap, f: &mut Fonts, cfg: &ScreenConfig, sensors: &SensorSt
         }
         _ => {}
     }
+}
+
+fn draw_widget(pm: &mut Pixmap, f: &mut Fonts, w: &crate::config::Widget, cfg: &ScreenConfig, sensors: &SensorState, s: f32, heat: &dyn Fn(&V) -> [u8; 3]) {
+    let (bw0, bh0) = widget_box(&w.kind);
+    let size = w.size.clamp(0.2, 4.0);
+    let (bw, bh) = (bw0 * size * s, bh0 * size * s);
+    let (cx, cy) = (w.x * s, w.y * s);
+    let (x0, y0) = (cx - bw / 2.0, cy - bh / 2.0);
+    let acc = hex(&cfg.accent);
+    let txt = hex(&cfg.text);
+    let v = value_of(sensors, &w.sensor);
+    let col = match w.color.as_str() {
+        "accent" => acc,
+        "text" => txt,
+        "heat" | "" => heat(&v),
+        c => hex(c),
+    };
+    let cap = if w.label.is_empty() { caption(&v) } else { w.label.to_uppercase() };
+    let plate = |pm: &mut Pixmap, x: f32, y: f32, ww: f32, hh: f32| {
+        if w.plate {
+            rrect(pm, x, y, ww, hh, (hh * 0.18).min(s * 0.03), Color::from_rgba8(0, 0, 0, 120));
+        }
+    };
+    match w.kind.as_str() {
+        "value" => {
+            plate(pm, x0, y0, bw, bh);
+            f.draw(pm, 1, &val_text(&v), bh * 0.52, cx, cy + bh * 0.12, 1, col, 1.0);
+            f.draw(pm, 0, &cap, bh * 0.15, cx, cy + bh * 0.38, 1, txt, 0.72);
+        }
+        "gauge" => {
+            let r = bw * 0.4;
+            if w.plate {
+                circle(pm, cx, cy, bw * 0.5, Color::from_rgba8(0, 0, 0, 110));
+            }
+            let a0 = std::f32::consts::PI * 0.75;
+            arc(pm, cx, cy, r, a0, a0 + std::f32::consts::PI * 1.5, bw * 0.055, rgba([255, 255, 255], 0.12));
+            arc(pm, cx, cy, r, a0, a0 + std::f32::consts::PI * 1.5 * v.frac.max(0.01), bw * 0.055, rgba(col, 1.0));
+            f.draw(pm, 1, &v.text, r * 0.62, cx, cy + r * 0.2, 1, txt, 1.0);
+            f.draw(pm, 0, &cap, r * 0.2, cx, cy + r * 0.66, 1, txt, 0.7);
+        }
+        "bar" => {
+            plate(pm, x0, y0, bw, bh);
+            let (ix, iw) = (x0 + bw * 0.05, bw * 0.9);
+            f.draw(pm, 0, &cap, bh * 0.28, ix, cy - bh * 0.02, 0, txt, 0.75);
+            f.draw(pm, 1, &val_text(&v), bh * 0.36, ix + iw, cy - bh * 0.02, 2, col, 1.0);
+            rrect(pm, ix, cy + bh * 0.12, iw, bh * 0.18, bh * 0.09, rgba([255, 255, 255], 0.12));
+            rrect(pm, ix, cy + bh * 0.12, (iw * v.frac).max(bh * 0.18), bh * 0.18, bh * 0.09, rgba(col, 1.0));
+        }
+        "clock" => {
+            let now = chrono::Local::now();
+            let time = if cfg.clock_24h { now.format("%H:%M").to_string() } else { now.format("%-I:%M").to_string() };
+            plate(pm, x0, y0, bw, bh);
+            f.draw(pm, 1, &time, bh * 0.78, cx, cy + bh * 0.28, 1, col, 1.0);
+        }
+        "date" => {
+            let date = chrono::Local::now().format("%a %-d %b").to_string().to_uppercase();
+            f.draw(pm, 0, &date, bh * 0.7, cx, cy + bh * 0.25, 1, col, 0.85);
+        }
+        "text" => {
+            f.draw(pm, 1, &w.label, bh * 0.7, cx, cy + bh * 0.25, 1, col, 1.0);
+        }
+        "graph" => {
+            plate(pm, x0, y0, bw, bh);
+            f.draw(pm, 0, &cap, bh * 0.14, x0 + bw * 0.05, y0 + bh * 0.2, 0, txt, 0.7);
+            f.draw(pm, 1, &val_text(&v), bh * 0.2, x0 + bw * 0.95, y0 + bh * 0.24, 2, col, 1.0);
+            spark(pm, &v.history, x0 + bw * 0.05, y0 + bh * 0.32, bw * 0.9, bh * 0.58, col);
+        }
+        _ => {}
+    }
+}
+
+/// Number with its unit, unless the label already names the unit (FPS).
+fn val_text(v: &V) -> String {
+    let u = v.unit.trim();
+    if !u.is_empty() && v.label.split_whitespace().any(|w| w.eq_ignore_ascii_case(u)) { v.text.clone() } else { format!("{}{}", v.text, unit_suffix(&v.unit)) }
 }
 
 fn unit_suffix(u: &str) -> String {

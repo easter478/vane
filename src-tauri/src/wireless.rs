@@ -36,6 +36,13 @@ pub struct WirelessDevice {
     pub is_aio: bool,
     pub inf_right: bool,
     pub ours: bool,
+    /// The lighting effect the device is playing now (matches the upload's index once it applied).
+    #[serde(skip)]
+    pub effect_index: [u8; 4],
+    /// True while the device follows the motherboard's RGB header instead of its own effect.
+    pub mb_sync: bool,
+    #[serde(skip)]
+    pub cmd_seq: u8,
 }
 
 impl WirelessDevice {
@@ -49,6 +56,33 @@ impl WirelessDevice {
             63 => 8,
             _ => 10,
         }
+    }
+    /// LEDs per zone in upload order: the pump ring first on a HydroShift, then each fan.
+    pub fn led_zones(&self) -> Vec<usize> {
+        let per_fan = if self.is_aio {
+            24
+        } else {
+            match self.fan_types.iter().copied().find(|&b| b != 0).unwrap_or(0) {
+                20..=26 => 40,
+                27..=35 | 51..=58 => 26,
+                36..=39 | 43..=50 => 44,
+                40..=42 => 24,
+                59..=62 => 52,
+                _ => 0,
+            }
+        };
+        if per_fan == 0 || self.fan_count == 0 {
+            return Vec::new();
+        }
+        let mut z = Vec::new();
+        if self.is_aio {
+            z.push(24);
+        }
+        z.extend(std::iter::repeat_n(per_fan, self.fan_count as usize));
+        z
+    }
+    fn is_infinity(&self) -> bool {
+        matches!(self.fan_types.iter().copied().find(|&b| b != 0).unwrap_or(0), 36..=39 | 43..=50)
     }
     fn is_cl(&self) -> bool {
         matches!(self.fan_types.iter().copied().find(|&b| b != 0).unwrap_or(0), 40..=42 | 126 | 127)
@@ -80,6 +114,10 @@ fn kind_of(device_type: u8, fan_types: &[u8; 4]) -> (String, bool) {
     }
 }
 
+pub fn hex(m: &[u8; 6]) -> String {
+    hex_mac(m)
+}
+
 fn hex_mac(m: &[u8; 6]) -> String {
     m.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
 }
@@ -90,7 +128,7 @@ pub struct Dongle {
     pub master: [u8; 6],
     pub master_channel: u8,
     pub devices: Vec<WirelessDevice>,
-    last_frame: Option<([u8; 6], Instant)>,
+    last_frame: Option<([u8; 6], u8, Instant)>,
     pages: u8,
 }
 
@@ -201,6 +239,9 @@ impl Dongle {
                 is_aio,
                 inf_right,
                 ours: master == self.master,
+                effect_index: [d[20], d[21], d[22], d[23]],
+                mb_sync: d[28] & 0x40 != 0,
+                cmd_seq: d[40],
             });
         }
         // keep devices that skipped one poll, so a missed record doesn't make a group vanish
@@ -227,7 +268,8 @@ impl Dongle {
     }
 
     /// Set fan duties (0-255) for one device; slot 3 is the pump on a HydroShift.
-    pub fn set_pwm(&mut self, mac: &[u8; 6], duty: [u8; 4]) -> Result<()> {
+    /// Returns the duties as the device will report them back once it took them.
+    pub fn set_pwm(&mut self, mac: &[u8; 6], duty: [u8; 4]) -> Result<[u8; 4]> {
         let dev = self.devices.iter().find(|d| &d.mac_raw == mac).cloned().context("device not in the wireless list")?;
         let mut pwm = duty;
         let min = ((dev.min_duty_pct() as f32 / 100.0) * 255.0) as u8;
@@ -261,13 +303,111 @@ impl Dongle {
         rf[15] = channel;
         rf[16] = self.slot_of(mac);
         rf[17..21].copy_from_slice(&pwm);
-        self.send_rf(mac, channel, dev.rx, &rf)
+        self.send_rf(mac, channel, dev.rx, &rf)?;
+        Ok(pwm)
+    }
+
+    /// One line per device for the diagnostics file.
+    pub fn describe(&self) -> String {
+        self.devices
+            .iter()
+            .map(|d| format!("{} {} ch={} rx={} slot={} fans={} pwm={:?} rpm={:?} mb_sync={} effect={:02x?} seq={}", d.mac, d.kind, d.channel, d.rx, self.slot_of(&d.mac_raw), d.fan_count, d.pwm, d.rpm, d.mb_sync, d.effect_index, d.cmd_seq))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Turn the device's "follow motherboard RGB" off so it plays our effect. Returns true if a request was sent.
+    pub fn set_mb_sync_off(&mut self, mac: &[u8; 6]) -> Result<bool> {
+        let dev = self.devices.iter().find(|d| &d.mac_raw == mac).cloned().context("device not in the wireless list")?;
+        if !dev.mb_sync {
+            return Ok(false);
+        }
+        let slave_index = self.devices.iter().filter(|d| d.master == self.master && d.device_type != 0xFF).position(|d| &d.mac_raw == mac).unwrap_or(0) as u8;
+        let mut rf = [0u8; 240];
+        rf[0] = 0x12;
+        rf[1] = 0x27;
+        rf[2..8].copy_from_slice(mac);
+        rf[8..14].copy_from_slice(&self.master);
+        rf[14] = dev.rx;
+        rf[15] = self.master_channel;
+        rf[16] = slave_index;
+        rf[17] = if dev.cmd_seq >= 254 { 1 } else { dev.cmd_seq + 1 };
+        rf[20] = 0;
+        let channel = if (1..=39).contains(&dev.channel) { dev.channel } else { self.master_channel };
+        self.send_rf(mac, channel, dev.rx, &rf)?;
+        Ok(true)
+    }
+
+    /// Upload a looping lighting animation (frames of RGB per LED, in `led_zones` order).
+    /// Returns the effect index the device reports once it is playing it.
+    pub fn upload_rgb(&mut self, mac: &[u8; 6], frames: &[Vec<[u8; 3]>], interval_ms: u32) -> Result<[u8; 4]> {
+        const CHUNK: usize = 220;
+        let dev = self.devices.iter().find(|d| &d.mac_raw == mac).cloned().context("device not in the wireless list")?;
+        let zones = dev.led_zones();
+        let leds: usize = zones.iter().sum();
+        anyhow::ensure!(leds > 0 && leds <= 255, "this device has no lighting Vane knows");
+        anyhow::ensure!(!frames.is_empty() && frames.len() <= 4096 && frames.iter().all(|f| f.len() == leds), "lighting frames don't match the device");
+        let reverse = (dev.inf_right && dev.is_infinity()).then_some(zones.last().copied().unwrap_or(44));
+        let mut raw = Vec::with_capacity(frames.len() * leds * 3);
+        for f in frames {
+            match reverse {
+                Some(n) => f.chunks(n).rev().flatten().for_each(|c| raw.extend_from_slice(c)),
+                None => f.iter().for_each(|c| raw.extend_from_slice(c)),
+            }
+        }
+        let comp = crate::tinyuz::compress(&raw)?;
+        anyhow::ensure!(comp.len() <= 12_288, "the lighting animation is too big for the fans; try a slower or shorter effect");
+        let hundredths = interval_ms.clamp(1, 40_959) * 160;
+        let ticks = (hundredths / 100) as u16;
+        let fraction = (hundredths % 100) as u8;
+        let frame_count = frames.len() as u16;
+        let mut hash = 0x811c_9dc5u32;
+        for b in comp.iter().copied().chain(ticks.to_be_bytes()).chain([fraction]).chain(frame_count.to_be_bytes()).chain([leds as u8]).chain([0, 0, 0, 0, 0]) {
+            hash = (hash ^ b as u32).wrapping_mul(0x0100_0193);
+        }
+        let mut idx = hash.to_be_bytes();
+        idx[0] |= 0x80;
+        let packets = comp.len().div_ceil(CHUNK) + 1;
+        let channel = if (1..=39).contains(&dev.channel) { dev.channel } else { self.master_channel };
+        let started = Instant::now();
+        for i in 0..packets {
+            anyhow::ensure!(started.elapsed() < Duration::from_secs(3), "the lighting upload took too long");
+            let mut p = [0u8; 240];
+            p[0] = 0x12;
+            p[1] = 0x20;
+            p[2..8].copy_from_slice(mac);
+            p[8..14].copy_from_slice(&self.master);
+            p[14..18].copy_from_slice(&idx);
+            p[18] = i as u8;
+            p[19] = packets as u8;
+            if i == 0 {
+                p[20..24].copy_from_slice(&(comp.len() as u32).to_be_bytes());
+                p[25..27].copy_from_slice(&frame_count.to_be_bytes());
+                p[27] = leds as u8;
+                p[32..34].copy_from_slice(&ticks.to_be_bytes());
+                p[34] = fraction;
+            } else {
+                let o = (i - 1) * CHUNK;
+                let data = &comp[o..comp.len().min(o + CHUNK)];
+                p[20..20 + data.len()].copy_from_slice(data);
+            }
+            let repeats = if i == 0 { 2 } else { 1 };
+            for r in 0..repeats {
+                self.send_rf(mac, channel, dev.rx, &p)?;
+                if r + 1 < repeats {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
+        Ok(idx)
     }
 
     fn send_rf(&mut self, target: &[u8; 6], channel: u8, rx: u8, rf: &[u8; 240]) -> Result<()> {
-        if let Some((last, at)) = self.last_frame {
-            if &last != target {
-                let gap = Duration::from_millis(5).saturating_sub(at.elapsed());
+        if let Some((last, op, at)) = self.last_frame {
+            if &last != target || op != rf[1] {
+                // the radio needs a rest between frames for different devices or commands (longer after lighting)
+                let rest = if op == 0x20 { 10 } else { 5 };
+                let gap = Duration::from_millis(rest).saturating_sub(at.elapsed());
                 std::thread::sleep(gap);
             }
         }
@@ -282,7 +422,7 @@ impl Dongle {
             self.tx.write(&p, Duration::from_millis(2000)).context("sending to the wireless TX dongle")?;
             std::thread::sleep(Duration::from_millis(1));
         }
-        self.last_frame = Some((*target, Instant::now()));
+        self.last_frame = Some((*target, rf[1], Instant::now()));
         Ok(())
     }
 }

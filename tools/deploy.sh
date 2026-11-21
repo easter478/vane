@@ -21,7 +21,7 @@ if [[ "$1" == "--shot" ]]; then
 fi
 
 echo "Uploading source to C:\\vane-build"
-COPYFILE_DISABLE=1 tar czf - src-tauri/src src-tauri/Cargo.toml src-tauri/build.rs src-tauri/tauri.conf.json src-tauri/capabilities src-tauri/icons ui | pc 'tar xzf - -C C:/vane-build'
+COPYFILE_DISABLE=1 tar czf - src-tauri/src src-tauri/Cargo.toml src-tauri/build.rs src-tauri/vendor src-tauri/windows src-tauri/tauri.conf.json src-tauri/capabilities src-tauri/icons ui | pc 'tar xzf - -C C:/vane-build'
 echo "Building (about 1-2 minutes)"
 pc 'C:\vane-tools\cargo.cmd C:\vane-build\src-tauri build --release' | grep -E '^(error|warning)|Finished|exit=' 
 [[ "$1" == "--build" ]] && exit 0

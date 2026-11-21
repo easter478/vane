@@ -23,6 +23,31 @@ pub struct ScreenConfig {
     pub brightness: u8,
     pub rotation: u16,
     pub fps: u8,
+    /// widgets for the "custom" layout, placed freely on the screen
+    pub widgets: Vec<Widget>,
+}
+
+/// One item on a custom layout. x and y are the centre (0..1 of the screen); size scales its box.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Widget {
+    /// value, gauge, bar, clock, date, text, graph
+    pub kind: String,
+    pub sensor: String,
+    pub x: f32,
+    pub y: f32,
+    pub size: f32,
+    /// "accent", "text", "heat" (accent that warms up with temperature) or a #hex colour
+    pub color: String,
+    /// caption override, or the words for a text widget
+    pub label: String,
+    pub plate: bool,
+}
+
+impl Default for Widget {
+    fn default() -> Self {
+        Self { kind: "value".into(), sensor: "cpu.load".into(), x: 0.5, y: 0.5, size: 1.0, color: "heat".into(), label: String::new(), plate: true }
+    }
 }
 
 impl Default for ScreenConfig {
@@ -49,6 +74,7 @@ fn sc(name: &str, bg: &str, layout: &str, slots: &[&str], accent: &str) -> Scree
         brightness: 80,
         rotation: 0,
         fps: 20,
+        widgets: Vec::new(),
     }
 }
 
@@ -166,6 +192,31 @@ pub struct Config {
     pub fans: BTreeMap<String, FanGroup>,
     pub my_themes: BTreeMap<String, ScreenConfig>,
     pub link_fan_screens: bool,
+    /// keys: wireless MAC
+    pub lighting: BTreeMap<String, Lighting>,
+    /// lets OpenRGB see and colour the wireless fans (Vane acts as an OpenRGB SDK server on this PC only)
+    pub openrgb_server: bool,
+    pub openrgb_port: u16,
+}
+
+/// Lighting for one wireless group (fans, and the pump ring on a HydroShift).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Hash)]
+#[serde(default)]
+pub struct Lighting {
+    /// see lighting::EFFECTS; "auto" leaves the device's own lighting alone
+    pub effect: String,
+    pub colors: Vec<String>,
+    /// 1 (slow) to 10 (fast)
+    pub speed: u8,
+    /// 0 to 100
+    pub brightness: u8,
+    pub reverse: bool,
+}
+
+impl Default for Lighting {
+    fn default() -> Self {
+        Self { effect: "auto".into(), colors: vec!["#2cc4bc".into(), "#b07cff".into()], speed: 5, brightness: 80, reverse: false }
+    }
 }
 
 impl Default for Config {
@@ -180,6 +231,9 @@ impl Default for Config {
             fans: BTreeMap::new(),
             my_themes: BTreeMap::new(),
             link_fan_screens: false,
+            lighting: BTreeMap::new(),
+            openrgb_server: true,
+            openrgb_port: 6743,
         }
     }
 }
