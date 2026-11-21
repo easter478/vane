@@ -1,5 +1,7 @@
 //! Sensor hub. Collects readings once a second from:
 //! - RivaTuner Statistics Server shared memory (FPS and frame time of the game in front),
+//! - MSI Afterburner shared memory (CPU temperature, power and clock, GPU voltage) — its RTCore
+//!   driver reads the CPU's own sensors, which Windows keeps from ordinary programs,
 //! - HWiNFO: full shared memory when "Shared Memory Support" is on, otherwise the values the user
 //!   ticked for "Report value in Gadget" (registry HKCU\Software\HWiNFO64\VSB),
 //! - Windows itself (CPU load, RAM use),
@@ -33,6 +35,9 @@ pub struct SensorState {
 #[derive(Default, Clone, Serialize)]
 pub struct Sources {
     pub rtss: bool,
+    /// MSI Afterburner is running; true once it reports a CPU temperature
+    pub afterburner: bool,
+    pub afterburner_cpu: bool,
     pub hwinfo_shared_memory: bool,
     pub hwinfo_gadget: usize,
     pub game: Option<String>,
@@ -48,15 +53,15 @@ pub const SMART: &[(&str, &str, &str, &[&str])] = &[
     ("fps", "FPS", "FPS", &["rtss.fps", "rtss|framerate"]),
     ("frametime", "Frame time", "ms", &["rtss.frametime", "rtss|frame time"]),
     ("fps.low1", "1% low FPS", "FPS", &["rtss|framerate 1% low", "rtss|1% low"]),
-    ("cpu.temp", "CPU temperature", "°C", &["|cpu (tctl/tdie)", "|cpu package", "|cpu die (average)", "|core temperatures", "|cpu temperature"]),
+    ("cpu.temp", "CPU temperature", "°C", &["ab.cpu.temp", "|cpu (tctl/tdie)", "|cpu package", "|cpu die (average)", "|core temperatures", "|cpu temperature"]),
     ("cpu.load", "CPU load", "%", &["win.cpu.load", "|total cpu usage"]),
-    ("cpu.clock", "CPU clock", "MHz", &["|core clocks (avg)", "|average effective clock", "|core 0 clock"]),
-    ("cpu.power", "CPU power", "W", &["|cpu package power", "|cpu ppt"]),
+    ("cpu.clock", "CPU clock", "MHz", &["|core clocks (avg)", "|average effective clock", "|core 0 clock", "ab.cpu.clock"]),
+    ("cpu.power", "CPU power", "W", &["ab.cpu.power", "|cpu package power", "|cpu ppt"]),
     ("gpu.temp", "GPU temperature", "°C", &["gpu|gpu temperature"]),
     ("gpu.hotspot", "GPU hot spot", "°C", &["gpu|gpu hot spot temperature", "gpu|hot spot"]),
     ("gpu.load", "GPU load", "%", &["gpu|gpu core load", "gpu|gpu utilization", "gpu|gpu bus load"]),
     ("gpu.clock", "GPU clock", "MHz", &["gpu|gpu clock"]),
-    ("gpu.voltage", "GPU voltage", "V", &["gpu|gpu core voltage", "gpu|gpu voltage"]),
+    ("gpu.voltage", "GPU voltage", "V", &["ab.gpu.voltage", "gpu|gpu core voltage", "gpu|gpu voltage"]),
     ("gpu.power", "GPU power", "W", &["gpu|gpu power", "gpu|total board power"]),
     ("gpu.vram", "VRAM used", "MB", &["gpu|gpu memory allocated", "gpu|gpu d3d memory dedicated", "gpu|gpu memory used"]),
     ("gpu.fan", "GPU fan", "RPM", &["gpu|gpu fan1", "gpu|gpu fan"]),
@@ -126,6 +131,10 @@ pub fn poll(state: &Sensors, cpu: &mut CpuMeter) {
             put(&mut map, "rtss.frametime", "Frame Time", "RTSS", ft, "ms");
         }
         src.nvidia = nvidia::read(&mut map);
+        if let Some(cpu) = win::afterburner(&mut map) {
+            src.afterburner = true;
+            src.afterburner_cpu = cpu;
+        }
         let sm = win::hwinfo_shared_memory(&mut map);
         src.hwinfo_shared_memory = sm;
         if !sm {
@@ -313,6 +322,46 @@ mod win {
             Some((_, fps, ft, name)) => Some((Some(name), (fps * 10.0).round() / 10.0, (ft * 100.0).round() / 100.0)),
             None => Some((None, 0.0, 0.0)),
         }
+    }
+
+    /// MSI Afterburner's monitoring list ("MAHMSharedMemory", format v2). Returns whether a CPU
+    /// temperature came through. Per-core and per-GPU rows are skipped except GPU voltage.
+    pub fn afterburner(map: &mut BTreeMap<String, Reading>) -> Option<bool> {
+        let v = View::open("MAHMSharedMemory")?;
+        let p = v.base();
+        let (sig, hs, n, es): (u32, u32, u32, u32) = (rd(p, 0), rd(p, 8), rd(p, 12), rd(p, 16));
+        if sig != 0x4D41_484D || n > 1024 || es < 1316 {
+            return Some(false); // "MAHM"; 0xDEAD while Afterburner is closing
+        }
+        let mut cpu = false;
+        let mut volt: Option<f64> = None;
+        for i in 0..n as usize {
+            let b = hs as usize + i * es as usize;
+            let value: f32 = rd(p, b + 1300);
+            if !value.is_finite() || value.abs() > 1e30 {
+                continue; // FLT_MAX means "no data"
+            }
+            let (gpu, src): (u32, u32) = if es >= 1324 { (rd(p, b + 1316), rd(p, b + 1320)) } else { (u32::MAX, 0) };
+            let name = cstr(p, b, 260);
+            let unit = cstr(p, b + 260, 260).replace('\u{FFFD}', "°");
+            let value = value as f64;
+            match src {
+                0x40 => volt = Some(volt.map_or(value, |o: f64| o.max(value))),
+                0x80 if gpu == u32::MAX => {
+                    cpu = true;
+                    put(map, "ab.cpu.temp", "CPU temperature", "MSI Afterburner", value, "°C");
+                }
+                0xA0 if gpu == u32::MAX => put(map, "ab.cpu.clock", "CPU clock", "MSI Afterburner", value, "MHz"),
+                0x100 if gpu == u32::MAX => put(map, "ab.cpu.power", "CPU power", "MSI Afterburner", value, "W"),
+                _ if gpu == u32::MAX && !name.is_empty() => put(map, &format!("ab:{name}"), &name, "MSI Afterburner", value, &unit),
+                _ => {}
+            }
+        }
+        if let Some(v) = volt {
+            // Afterburner reports mV for some cards and V for others
+            put(map, "ab.gpu.voltage", "GPU voltage", "MSI Afterburner", if v > 10.0 { v / 1000.0 } else { v }, "V");
+        }
+        Some(cpu)
     }
 
     fn group_of(sensor: &str) -> String {

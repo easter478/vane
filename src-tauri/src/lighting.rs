@@ -73,7 +73,12 @@ pub fn heat(t: f64) -> [f32; 3] {
 /// Render the effect for this device. `div` thins the animation (half the frames, twice as long each)
 /// when the full one is too big for the fans' memory.
 pub fn build(dev: &WirelessDevice, l: &Lighting, temp: Option<f64>, div: usize) -> Option<Anim> {
-    let zones = dev.led_zones();
+    build_zones(&dev.led_zones(), l, temp, div)
+}
+
+/// The same effects for any strip of LEDs split into zones (also used for OpenRGB devices).
+pub fn build_zones(zones: &[usize], l: &Lighting, temp: Option<f64>, div: usize) -> Option<Anim> {
+    let zones: Vec<usize> = zones.iter().copied().filter(|&z| z > 0).collect();
     if zones.is_empty() {
         return None;
     }

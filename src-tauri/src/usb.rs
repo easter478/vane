@@ -165,6 +165,9 @@ pub struct FanLcd {
     pk: Packets,
     pub firmware: Option<String>,
     ready: bool,
+    /// last brightness asked for; sent again after every re-init, because the panel
+    /// goes back to full brightness whenever it resets
+    bright: Option<u8>,
 }
 
 pub const FAN_LCD_SIZE: u32 = 400;
@@ -173,7 +176,7 @@ const FAN_FRAME_PACKET: usize = 102_400;
 impl FanLcd {
     pub fn open(dev: &rusb::Device<GlobalContext>) -> Result<Self> {
         let bulk = Bulk::open(dev)?;
-        Ok(Self { bulk, pk: Packets::new(), firmware: None, ready: false })
+        Ok(Self { bulk, pk: Packets::new(), firmware: None, ready: false, bright: None })
     }
 
     fn init(&mut self) -> Result<()> {
@@ -197,6 +200,12 @@ impl FanLcd {
             }
         }
         self.ready = true;
+        if let Some(b) = self.bright {
+            let h = self.pk.legacy(0x0E, &[fan_brightness_lut(b)]);
+            self.bulk.write(&h, Duration::from_millis(500))?;
+            let n = self.bulk.read(&mut buf, Duration::from_millis(1000));
+            crate::config::log_to("screens.log", &format!("fan re-init: brightness {b}% -> {} again, reply {}", fan_brightness_lut(b), reply_hex(&buf, n)));
+        }
         Ok(())
     }
 
@@ -218,13 +227,22 @@ impl FanLcd {
         Ok(())
     }
 
-    pub fn set_brightness(&mut self, pct: u8) -> Result<()> {
+    /// Returns the panel's reply, for the diagnostics log.
+    pub fn set_brightness(&mut self, pct: u8) -> Result<String> {
+        self.bright = Some(pct);
         self.init()?;
         let h = self.pk.legacy(0x0E, &[fan_brightness_lut(pct)]);
         self.bulk.write(&h, Duration::from_millis(500))?;
         let mut b = [0u8; 512];
-        let _ = self.bulk.read(&mut b, Duration::from_millis(1000));
-        Ok(())
+        let n = self.bulk.read(&mut b, Duration::from_millis(1000));
+        Ok(format!("{pct}% -> {}, reply {}", fan_brightness_lut(pct), reply_hex(&b, n)))
+    }
+}
+
+fn reply_hex(b: &[u8], n: Option<usize>) -> String {
+    match n {
+        None => "none".into(),
+        Some(n) => format!("{n} bytes {}", b[..n.min(16)].iter().map(|x| format!("{x:02x}")).collect::<Vec<_>>().join(" ")),
     }
 }
 
@@ -250,6 +268,9 @@ pub struct CoolerLcd {
     pub firmware: Option<String>,
     ready: bool,
     layers_cleared: bool,
+    /// when the panel last confirmed the transparent overlay layer, and when it was set up
+    cleared_at: Option<std::time::Instant>,
+    ready_at: std::time::Instant,
 }
 
 pub const COOLER_LCD_SIZE: u32 = 480;
@@ -265,7 +286,7 @@ pub struct CoolerTelemetry {
 impl CoolerLcd {
     pub fn open(dev: &rusb::Device<GlobalContext>) -> Result<Self> {
         let bulk = Bulk::open(dev)?;
-        Ok(Self { bulk, pk: Packets::new(), firmware: None, ready: false, layers_cleared: false })
+        Ok(Self { bulk, pk: Packets::new(), firmware: None, ready: false, layers_cleared: false, cleared_at: None, ready_at: std::time::Instant::now() })
     }
 
     fn cmd(&mut self, cmd: u8, params: &[u8]) -> Vec<u8> {
@@ -283,9 +304,14 @@ impl CoolerLcd {
         let _ = self.cmd(0x7B, &[]); // StopPlay: end the firmware's own theme playback
         std::thread::sleep(Duration::from_millis(150));
         let r = self.cmd(0x0A, &[]); // GetVer
-        if r.first() == Some(&0x0A) {
-            self.firmware = fw_string(&r);
+        if r.first() != Some(&0x0A) {
+            // still starting up (right after Windows starts): try the whole setup again next frame,
+            // so StopPlay isn't lost and the panel's own screen doesn't stay up
+            crate::config::log_to("screens.log", "cooler: no answer yet, setting up again");
+            std::thread::sleep(Duration::from_millis(500));
+            bail!("the cooler screen isn't answering yet");
         }
+        self.firmware = fw_string(&r);
         let _ = self.cmd(0x0F, &[30]); // frame rate
         let now = chrono::Local::now();
         use chrono::{Datelike, Timelike};
@@ -294,11 +320,15 @@ impl CoolerLcd {
         let _ = self.cmd(0x33, &clock); // SyncClock
         let _ = self.cmd(0x34, &[0]); // StopClock
         self.ready = true;
+        self.ready_at = std::time::Instant::now();
+        self.cleared_at = None;
+        crate::config::log_to("screens.log", &format!("cooler: set up, firmware {}", self.firmware.as_deref().unwrap_or("?")));
         Ok(())
     }
 
     /// A transparent PNG layer stops the firmware's own coolant/pump overlay; a black JPEG clears the base layer.
-    fn clear_layers(&mut self) {
+    /// Returns whether the panel confirmed it.
+    fn clear_layers(&mut self) -> bool {
         use image::{ImageBuffer, Rgba};
         let s = COOLER_LCD_SIZE;
         let mut png = Vec::new();
@@ -308,10 +338,11 @@ impl CoolerLcd {
         {
             let mut pkt = self.pk.winusb(0x66, &(png.len() as u32).to_be_bytes());
             pkt.extend_from_slice(&png);
-            let _ = self.bulk.exchange(&pkt, Duration::from_millis(2000));
+            let ok = self.bulk.exchange(&pkt, Duration::from_millis(2000)).map(|r| r.first() == Some(&0x66)).unwrap_or(false);
             self.bulk.flush();
+            return ok;
         }
-        self.layers_cleared = true;
+        false
     }
 
     pub fn send_jpeg(&mut self, jpeg: &[u8]) -> Result<()> {
@@ -319,8 +350,17 @@ impl CoolerLcd {
             bail!("frame too large for the cooler screen ({} bytes)", jpeg.len());
         }
         self.init()?;
-        if !self.layers_cleared {
-            self.clear_layers();
+        // the panel turns its coolant/pump overlay back on after a reset or while it's still starting,
+        // so the transparent layer goes again every 2 s for the first half-minute, then every 10 s
+        let every = if self.ready_at.elapsed() < Duration::from_secs(30) { 2 } else { 10 };
+        let wait = if self.layers_cleared { every } else { 1 };
+        if self.cleared_at.is_none_or(|t| t.elapsed() > Duration::from_secs(wait)) {
+            let ok = self.clear_layers();
+            if ok != self.layers_cleared || self.cleared_at.is_none() {
+                crate::config::log_to("screens.log", &format!("cooler: overlay layer {}", if ok { "confirmed" } else { "not confirmed, retrying" }));
+            }
+            self.layers_cleared = ok;
+            self.cleared_at = Some(std::time::Instant::now());
         }
         let mut pkt = self.pk.winusb(0x65, &(jpeg.len() as u32).to_be_bytes());
         pkt.extend_from_slice(jpeg);

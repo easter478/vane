@@ -39,6 +39,9 @@ pub struct Status {
     /// OpenRGB server state, in words
     pub openrgb: String,
     pub openrgb_clients: u32,
+    /// OpenRGB connection for the rest of the PC's lighting, in words, and what it found
+    pub pc_rgb: String,
+    pub pc_devices: Vec<crate::openrgb_client::PcDevice>,
 }
 
 /// Colours OpenRGB sent for one device, with a change counter.
@@ -102,8 +105,15 @@ impl Engine {
             let e = e.clone();
             std::thread::Builder::new().name("sensors".into()).spawn(move || {
                 let mut cpu = sensors::CpuMeter::default();
+                let mut tools_at: Option<Instant> = None;
                 loop {
                     sensors::poll(&e.sensors, &mut cpu);
+                    // MSI Afterburner gives the CPU temperature; start it if it was closed (at most every 5 minutes)
+                    let ab = e.sensors.read().sources.afterburner;
+                    if !ab && e.cfg.read().start_afterburner && tools_at.map_or(true, |t| t.elapsed() > Duration::from_secs(300)) {
+                        tools_at = Some(Instant::now());
+                        crate::system::start_monitoring_tools();
+                    }
                     {
                         let mut st = e.status.write();
                         st.memory_mb = crate::system::memory_mb();
@@ -128,6 +138,7 @@ impl Engine {
             std::thread::Builder::new().name("wireless".into()).spawn(move || e.wireless_loop()).ok();
         }
         crate::openrgb::start(e.clone());
+        crate::openrgb_client::start(e.clone());
         e
     }
 
@@ -196,6 +207,11 @@ impl Engine {
         let mut fan: Option<FanLcd> = None;
         let mut last_open_try = Instant::now() - Duration::from_secs(60);
         let mut last_bright: Option<u8> = None;
+        let mut bright_at = Instant::now();
+        // test hook: %APPDATA%\Vane\fan-brightness-test.txt holding 0-100 overrides the fan backlight
+        // (and turns off the picture dimming) so the panel's own backlight can be checked by eye
+        let mut test_at = Instant::now() - Duration::from_secs(5);
+        let mut test_bright: Option<u8> = None;
         let mut last_telemetry = Instant::now();
         let mut error: Option<String> = None;
         let started = Instant::now();
@@ -241,6 +257,13 @@ impl Engine {
 
             let sensors = self.sensors.read();
             let pm = render::render(&mut fonts, &mut state, &cfg, &sensors, size, !is_cooler, started.elapsed().as_secs_f32());
+            if !is_cooler && test_at.elapsed() > Duration::from_secs(1) {
+                test_at = Instant::now();
+                test_bright = std::fs::read_to_string(crate::config::dir().join("fan-brightness-test.txt")).ok().and_then(|s| s.trim().parse::<u8>().ok()).map(|v| v.min(100));
+            }
+            let want_bright = test_bright.unwrap_or(cfg.brightness);
+            // (no picture darkening here: on these single-backlight panels it only lowers contrast,
+            // because black stays at the backlight's glow; the backlight command does the dimming)
             drop(sensors);
             let mut jpeg = render::jpeg(&pm, max_payload);
 
@@ -251,10 +274,30 @@ impl Engine {
                 jpeg = render::jpeg(&black, max_payload);
             }
             if !paused {
-                if last_bright != Some(cfg.brightness) {
-                    let r = if let Some(c) = cooler.as_mut() { c.set_brightness(cfg.brightness) } else if let Some(f) = fan.as_mut() { f.set_brightness(cfg.brightness) } else { Ok(()) };
+                // sent again now and then too: a panel that reset itself comes back at full brightness
+                if last_bright != Some(want_bright) || bright_at.elapsed() > Duration::from_secs(20) {
+                    bright_at = Instant::now();
+                    let changed = last_bright != Some(want_bright);
+                    let r = if let Some(c) = cooler.as_mut() {
+                        c.set_brightness(want_bright)
+                    } else if let Some(f) = fan.as_mut() {
+                        match f.set_brightness(want_bright) {
+                            Ok(note) => {
+                                if changed {
+                                    crate::config::log_to("screens.log", &format!("{key}: brightness {note}{}", if test_bright.is_some() { " (test)" } else { "" }));
+                                }
+                                Ok(())
+                            }
+                            Err(err) => {
+                                crate::config::log_to("screens.log", &format!("{key}: brightness {want_bright}% failed: {err:#}"));
+                                Err(err)
+                            }
+                        }
+                    } else {
+                        Ok(())
+                    };
                     if r.is_ok() && (cooler.is_some() || fan.is_some()) {
-                        last_bright = Some(cfg.brightness);
+                        last_bright = Some(want_bright);
                     }
                 }
                 let r = if let Some(c) = cooler.as_mut() { Some(c.send_jpeg(&jpeg)) } else { fan.as_mut().map(|f| f.send_jpeg(&jpeg)) };

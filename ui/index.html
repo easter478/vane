@@ -100,6 +100,7 @@
       </div>
       <div class="pick" id="scr-pick"></div>
       <div class="scr-grid">
+        <div class="side">
         <div class="box stage">
           <div class="stage-wrap" id="scr-wrap">
             <img id="scr-stage" class="sq" alt="Live screen">
@@ -108,6 +109,46 @@
           <div class="cap" id="scr-cap"></div>
           <div class="row">
             <div class="setrow" style="gap:8px"><button class="switch" role="switch" id="scr-enabled" aria-label="Screen on"></button><span class="small">Screen on</span></div>
+          </div>
+        </div>
+          <div class="box">
+            <h3>Look</h3>
+            <div style="display:grid;gap:14px">
+              <div class="field"><span>Accent colour</span><div class="swatches" id="scr-accent"></div></div>
+              <div class="row3">
+                <label class="field"><span>Text colour</span><input type="color" id="scr-text"></label>
+                <label class="field" id="scr-solid-f"><span>Background colour</span><input type="color" id="scr-solid"></label>
+                <div class="field"><span>Clock</span><div class="seg" id="scr-clock"><button data-v="24">24 h</button><button data-v="12">12 h</button></div></div>
+              </div>
+              <div class="row2">
+                <label class="field"><span>Animation speed <b id="scr-speed-v"></b></span><input type="range" id="scr-speed" min="0" max="3" step="0.1"></label>
+                <label class="field"><span>Dim background <b id="scr-dim-v"></b></span><input type="range" id="scr-dim" min="0" max="0.8" step="0.05"></label>
+              </div>
+              <div class="row2">
+                <label class="field"><span>Blur background <b id="scr-blur-v"></b></span><input type="range" id="scr-blur" min="0" max="1" step="0.05"></label>
+                <div></div>
+              </div>
+              <div class="field"><span>Behind the numbers</span><div class="seg" id="scr-behind"><button data-v="outline">Dark outline</button><button data-v="plate">Glass plate</button><button data-v="none">Nothing</button></div></div>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Screen</h3>
+            <div style="display:grid;gap:14px">
+              <div class="row2">
+                <label class="field"><span>Brightness <b id="scr-bright-v"></b></span><input type="range" id="scr-bright" min="5" max="100" step="5"></label>
+                <label class="field"><span>Frames per second</span><select id="scr-fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="30">30</option></select></label>
+              </div>
+              <div class="field"><span>Colour</span><div class="seg" id="scr-grade"><button data-v="natural">As drawn</button><button data-v="vivid">Vivid</button><button data-v="punchy">Extra vivid</button></div></div>
+              <div class="row3">
+                <label class="field"><span>Contrast <b id="scr-contrast-v"></b></span><input type="range" id="scr-contrast" min="0.7" max="1.6" step="0.02"></label>
+                <label class="field"><span>Saturation <b id="scr-sat-v"></b></span><input type="range" id="scr-sat" min="0" max="2" step="0.05"></label>
+                <label class="field"><span>Depth <b id="scr-gamma-v"></b></span><input type="range" id="scr-gamma" min="0.7" max="1.6" step="0.05"></label>
+              </div>
+              <label class="field"><span>Deeper blacks <b id="scr-black-v"></b></span><input type="range" id="scr-black" min="0" max="0.3" step="0.01"></label>
+              <p class="small muted" style="margin:-6px 0 0">The fan screens have one backlight behind the whole panel, so black still glows a little. Deeper blacks turns dark greys into pure black, and a lower brightness makes black darker.</p>
+              <div class="field"><span>Rotation</span><div class="seg" id="scr-rot"><button data-v="0">0°</button><button data-v="90">90°</button><button data-v="180">180°</button><button data-v="270">270°</button></div></div>
+              <div class="setrow" id="scr-link-row"><div class="t"><b>Same look on all LCD fans</b><span>Design, background, look, colour, brightness and rotation go to all three. Each fan keeps its own layout and readings.</span></div><button class="switch" role="switch" id="scr-link"></button></div>
+            </div>
           </div>
         </div>
         <div class="opts">
@@ -124,33 +165,6 @@
             <h3>Background</h3>
             <div class="bgs" id="scr-bgs"></div>
             <div id="scr-lianli"></div>
-          </div>
-          <div class="box">
-            <h3>Look</h3>
-            <div style="display:grid;gap:14px">
-              <div class="field"><span>Accent colour</span><div class="swatches" id="scr-accent"></div></div>
-              <div class="row3">
-                <label class="field"><span>Text colour</span><input type="color" id="scr-text"></label>
-                <label class="field" id="scr-solid-f"><span>Background colour</span><input type="color" id="scr-solid"></label>
-                <div class="field"><span>Clock</span><div class="seg" id="scr-clock"><button data-v="24">24 h</button><button data-v="12">12 h</button></div></div>
-              </div>
-              <div class="row2">
-                <label class="field"><span>Animation speed <b id="scr-speed-v"></b></span><input type="range" id="scr-speed" min="0" max="3" step="0.1"></label>
-                <label class="field"><span>Dim background <b id="scr-dim-v"></b></span><input type="range" id="scr-dim" min="0" max="0.8" step="0.05"></label>
-              </div>
-              <div class="setrow"><div class="t"><b>Glass plates behind readings</b><span>Keeps numbers readable over busy backgrounds.</span></div><button class="switch" role="switch" id="scr-plates"></button></div>
-            </div>
-          </div>
-          <div class="box">
-            <h3>Screen</h3>
-            <div style="display:grid;gap:14px">
-              <div class="row2">
-                <label class="field"><span>Brightness <b id="scr-bright-v"></b></span><input type="range" id="scr-bright" min="5" max="100" step="5"></label>
-                <label class="field"><span>Frames per second</span><select id="scr-fps"><option value="10">10</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="30">30</option></select></label>
-              </div>
-              <div class="field"><span>Rotation</span><div class="seg" id="scr-rot"><button data-v="0">0°</button><button data-v="90">90°</button><button data-v="180">180°</button><button data-v="270">270°</button></div></div>
-              <div class="setrow" id="scr-link-row"><div class="t"><b>Same look on all LCD fans</b><span>Changes to one fan screen go to all three.</span></div><button class="switch" role="switch" id="scr-link"></button></div>
-            </div>
           </div>
         </div>
       </div>
@@ -171,7 +185,7 @@
     <!-- LIGHTING -->
     <section class="page" id="p-lighting">
       <div class="page-head">
-        <div><h2>Lighting</h2><p>Effects for the wireless fans and pump. The fans play them on their own once sent.</p></div>
+        <div><h2>Lighting</h2><p>Effects for the wireless fans and pump, and through OpenRGB for the motherboard, memory and graphics card.</p></div>
         <div class="actions"><button class="btn" id="lt-all">Use on every group</button></div>
       </div>
       <div id="lt-banner"></div>
@@ -179,7 +193,7 @@
         <div style="display:grid;gap:16px;align-content:start">
           <div class="groups" id="lt-groups"></div>
           <div class="box">
-            <h3>OpenRGB</h3>
+            <h3>Share the fans with OpenRGB</h3>
             <div class="src" style="margin-bottom:10px"><span class="dot" id="orgb-dot"></span><span id="orgb-state">–</span></div>
             <ol class="steps small muted">
               <li>Open OpenRGB and go to the <b>SDK Client</b> tab.</li>
@@ -205,6 +219,7 @@
               <div class="set"><div class="t"><b>Start with Windows</b><span>Opens in the tray when you sign in.</span></div><button class="switch" role="switch" id="set-auto"></button></div>
               <div class="set"><div class="t"><b>Closing the window keeps Vane in the tray</b><span>Turn off to quit Vane with the close button.</span></div><button class="switch" role="switch" id="set-tray"></button></div>
               <div class="set"><div class="t"><b>Screens on</b><span>Turn every screen off without quitting.</span></div><button class="switch" role="switch" id="set-screens"></button></div>
+              <div class="set"><div class="t"><b>Keep MSI Afterburner running</b><span>Starts them again if they were closed. CPU temperature comes from Afterburner.</span></div><button class="switch" role="switch" id="set-ab"></button></div>
             </div>
           </div>
           <div class="box">

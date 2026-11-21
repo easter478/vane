@@ -12,6 +12,9 @@ use tiny_skia::*;
 pub struct Fonts {
     faces: Vec<FontVec>, // 0 regular, 1 bold, 2 katakana (optional)
     cache: HashMap<(u8, u16, u16), Mask>,
+    rings: HashMap<(u8, u16, u16, u8), Mask>,
+    /// dark outline around text drawn with draw() while > 0 (set per screen during the layout pass)
+    pub outline: f32,
 }
 
 #[derive(Clone)]
@@ -41,7 +44,7 @@ impl Fonts {
         if let Some(k) = load(&f("msgothic.ttc"), 0).or_else(|| load(&f("YuGothM.ttc"), 0)) {
             faces.push(k);
         }
-        Self { faces, cache: HashMap::new() }
+        Self { faces, cache: HashMap::new(), rings: HashMap::new(), outline: 0.0 }
     }
 
     fn face(&self, i: u8) -> &FontVec {
@@ -79,6 +82,48 @@ impl Fonts {
         Some((m, adv))
     }
 
+    /// The glyph grown by r pixels in every direction (a round dilation), for text outlines.
+    fn ring(&mut self, fi: u8, c: char, px: f32, r: u8) -> Option<Mask> {
+        let (m, _) = self.mask(fi, c, px)?;
+        let key = (fi, self.face(fi).glyph_id(c).0, (px * 4.0) as u16, r);
+        if let Some(o) = self.rings.get(&key) {
+            return Some(o.clone());
+        }
+        let ri = r as i32;
+        let (w, h) = (m.w + 2 * r as u32, m.h + 2 * r as u32);
+        let mut cov = vec![0u8; (w * h) as usize];
+        let disk: Vec<(i32, i32, f32)> = (-ri..=ri)
+            .flat_map(|dy| (-ri..=ri).map(move |dx| (dx, dy)))
+            .filter_map(|(dx, dy)| {
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                // soft edge on the last pixel keeps the outline smooth
+                let k = (r as f32 + 0.5 - d).clamp(0.0, 1.0);
+                (k > 0.0).then_some((dx, dy, k))
+            })
+            .collect();
+        for y in 0..m.h as i32 {
+            for x in 0..m.w as i32 {
+                let c = m.cov[(y as u32 * m.w + x as u32) as usize];
+                if c == 0 {
+                    continue;
+                }
+                for &(dx, dy, k) in &disk {
+                    let i = ((y + ri + dy) as u32 * w + (x + ri + dx) as u32) as usize;
+                    let v = (c as f32 * k) as u8;
+                    if v > cov[i] {
+                        cov[i] = v;
+                    }
+                }
+            }
+        }
+        let o = Mask { w, h, left: m.left - ri, top: m.top - ri, cov };
+        if self.rings.len() > 3000 {
+            self.rings.clear();
+        }
+        self.rings.insert(key, o.clone());
+        Some(o)
+    }
+
     pub fn width(&self, fi: u8, text: &str, px: f32) -> f32 {
         let f = self.face(fi).as_scaled(PxScale::from(px));
         let mut w = 0.0;
@@ -114,6 +159,19 @@ impl Fonts {
                 })
                 .collect()
         };
+        if self.outline > 0.0 && alpha > 0.05 {
+            // the whole outline first, so no glyph's outline covers its neighbour
+            let r = (px * 0.055 * self.outline).round().clamp(1.0, 6.0) as u8;
+            let mut p = pen;
+            for &(c, k) in &scaled_kern {
+                p += k;
+                if let Some(o) = self.ring(fi, c, px, r) {
+                    blit(pm, &o, (p.round() as i32) + o.left, (y.round() as i32) + o.top, [0, 0, 0], (alpha * 0.85).min(1.0));
+                }
+                let face = self.face(fi);
+                p += face.as_scaled(PxScale::from(px)).h_advance(face.glyph_id(c));
+            }
+        }
         for (c, k) in scaled_kern {
             pen += k;
             if let Some((m, adv)) = self.mask(fi, c, px) {
@@ -974,7 +1032,12 @@ fn spark(pm: &mut Pixmap, h: &[f64], x: f32, y: f32, w: f32, hh: f32, c: [u8; 3]
 pub fn render(f: &mut Fonts, st: &mut ScreenState, cfg: &ScreenConfig, sensors: &SensorState, size: u32, round: bool, t: f32) -> Pixmap {
     let mut pm = Pixmap::new(size, size).unwrap();
     background(&mut pm, f, st, cfg, t);
+    if cfg.blur > 0.01 {
+        blur(&mut pm, (cfg.blur.clamp(0.0, 1.0) * size as f32 * 0.025).round() as usize);
+    }
+    f.outline = if cfg.outline { 1.0 } else { 0.0 };
     layout(&mut pm, f, cfg, sensors, round);
+    f.outline = 0.0;
     if let Some((n, at)) = st.identify {
         if at.elapsed().as_secs_f32() < 4.0 {
             let s = size as f32;
@@ -984,9 +1047,77 @@ pub fn render(f: &mut Fonts, st: &mut ScreenState, cfg: &ScreenConfig, sensors: 
             st.identify = None;
         }
     }
+    grade(&mut pm, cfg.contrast, cfg.saturation, cfg.gamma, cfg.black);
     match cfg.rotation {
         90 | 180 | 270 => rotate(&pm, cfg.rotation),
         _ => pm,
+    }
+}
+
+/// Contrast, saturation and gamma over the finished picture. 0 (an old settings file) counts as 1.
+fn grade(pm: &mut Pixmap, contrast: f32, saturation: f32, gamma: f32, black: f32) {
+    let f = |v: f32, lo: f32, hi: f32| if v <= 0.0 { 1.0 } else { v.clamp(lo, hi) };
+    let (c, s, g) = (f(contrast, 0.5, 2.0), f(saturation, 0.0, 2.5), f(gamma, 0.5, 2.0));
+    let bp = black.clamp(0.0, 0.3);
+    if (c - 1.0).abs() < 0.01 && (s - 1.0).abs() < 0.01 && (g - 1.0).abs() < 0.01 && bp < 0.005 {
+        return;
+    }
+    // black point, gamma and contrast per channel through a table (pure black always stays black);
+    // saturation mixes each pixel with its own grey
+    let lut: Vec<f32> = (0..256)
+        .map(|i| {
+            let v = ((i as f32 / 255.0 - bp) / (1.0 - bp)).max(0.0);
+            if v == 0.0 {
+                return 0.0;
+            }
+            ((v.powf(g) - 0.5) * c + 0.5).clamp(0.0, 1.0) * 255.0
+        })
+        .collect();
+    for px in pm.data_mut().chunks_exact_mut(4) {
+        let (r, gg, b) = (lut[px[0] as usize], lut[px[1] as usize], lut[px[2] as usize]);
+        let y = 0.299 * r + 0.587 * gg + 0.114 * b;
+        let a = px[3] as f32;
+        px[0] = (y + (r - y) * s).clamp(0.0, a) as u8;
+        px[1] = (y + (gg - y) * s).clamp(0.0, a) as u8;
+        px[2] = (y + (b - y) * s).clamp(0.0, a) as u8;
+    }
+}
+
+/// Soft blur: three box-blur passes each way, which comes out close to a Gaussian.
+fn blur(pm: &mut Pixmap, r: usize) {
+    if r == 0 {
+        return;
+    }
+    let (w, h) = (pm.width() as usize, pm.height() as usize);
+    let d = pm.data_mut();
+    let mut line = vec![0u8; w.max(h) * 4];
+    let pass = |d: &mut [u8], line: &mut [u8], n: usize, count: usize, at: &dyn Fn(usize, usize) -> usize| {
+        for j in 0..count {
+            for i in 0..n {
+                let p = at(j, i);
+                line[i * 4..i * 4 + 4].copy_from_slice(&d[p..p + 4]);
+            }
+            let mut sum = [0u32; 4];
+            let get = |line: &[u8], i: isize, k: usize| line[(i.clamp(0, n as isize - 1) as usize) * 4 + k] as u32;
+            for k in 0..4 {
+                for i in -(r as isize)..=(r as isize) {
+                    sum[k] += get(line, i, k);
+                }
+            }
+            let div = (2 * r + 1) as u32;
+            for i in 0..n {
+                let p = at(j, i);
+                for k in 0..4 {
+                    d[p + k] = (sum[k] / div) as u8;
+                    sum[k] += get(line, i as isize + r as isize + 1, k);
+                    sum[k] -= get(line, i as isize - r as isize, k);
+                }
+            }
+        }
+    };
+    for _ in 0..3 {
+        pass(d, &mut line, w, h, &|y, x| (y * w + x) * 4);
+        pass(d, &mut line, h, w, &|x, y| (y * w + x) * 4);
     }
 }
 

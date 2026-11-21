@@ -198,7 +198,12 @@ input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }
 .pickbtn b { display: block; font-weight: 600; font-size: 13px; }
 .pickbtn span { font-size: 12px; color: var(--ink-2); }
 .pickbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-.stage { display: grid; place-items: center; gap: 12px; padding: 22px 16px; position: sticky; top: 0; }
+.stage { display: grid; place-items: center; gap: 12px; padding: 22px 16px; }
+/* preview, Look and Screen stay in view while the designs and backgrounds scroll past */
+.side { display: grid; gap: 16px; position: sticky; top: 0; max-height: calc(100vh - 96px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 2px; }
+/* the preview stays pinned while Look and Screen scroll under it, so changes can be watched */
+.side > .stage { position: sticky; top: 0; z-index: 2; backdrop-filter: blur(22px) saturate(1.2); -webkit-backdrop-filter: blur(22px) saturate(1.2); padding: 16px; gap: 8px; }
+.side > .stage .stage-wrap, .side > .stage img { width: min(250px, 100%); }
 .stage img { width: min(300px, 100%); aspect-ratio: 1; border: 10px solid var(--bezel); background: #000; box-shadow: 0 10px 30px rgba(0,0,0,.25); object-fit: cover; }
 .stage img.sq { border-radius: 18px; } .stage img.rd { border-radius: 50%; }
 .stage .cap { font-size: 12px; color: var(--ink-3); text-align: center; }
@@ -322,7 +327,7 @@ svg.curve { width: 100%; height: auto; display: block; touch-action: none; }
 
 @media (max-width: 1040px) {
   .ov-grid, .scr-grid, .fan-grid, .set-grid { grid-template-columns: minmax(0, 1fr); }
-  .stage { position: static; }
+  .stage, .side { position: static; max-height: none; overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) {
   .fanicon .blades { animation: none !important; }

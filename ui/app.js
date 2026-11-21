@@ -63,10 +63,21 @@ function defaultScreen(key) {
   return c;
 }
 function scr(key) { return cfg.screens[key] || defaultScreen(key); }
+// "Same look on all LCD fans" shares the design, background, look, colour, brightness and rotation,
+// but each fan keeps its own layout: what it shows and where
+const OWN_FIELDS = ["layout", "slots", "widgets", "enabled"];
+function shareLook(c) {
+  if (!cfg.link_fan_screens || selScreen === "cooler") return;
+  fanScreens().forEach((s) => {
+    if (s.key === selScreen) return;
+    const mine = scr(s.key), o = clone(c);
+    for (const f of OWN_FIELDS) o[f] = clone(mine[f]);
+    cfg.screens[s.key] = o;
+  });
+}
 function editScreen(fn) {
-  const keys = [selScreen];
-  if (cfg.link_fan_screens && selScreen !== "cooler") fanScreens().forEach((s) => { if (!keys.includes(s.key)) keys.push(s.key); });
-  for (const k of keys) { const c = clone(scr(k)); fn(c, k); cfg.screens[k] = c; }
+  const c = clone(scr(selScreen)); fn(c, selScreen); cfg.screens[selScreen] = c;
+  shareLook(c);
   save();
   renderScreens();
 }
@@ -201,7 +212,7 @@ function renderOverview() {
     const s = smart(id) || { label: id, unit: "" };
     const v = fmt(s.value, s.unit);
     const needsHw = id === "cpu.temp" || id === "gpu.voltage";
-    return `<div class="stat"><span class="k">${esc(s.label)}</span>${v === null ? (needsHw ? `<button class="v none linkish" data-goto="settings">Turn on in HWiNFO</button>` : `<span class="v none">No reading</span>`) : `<span class="v ${heat(s.value, s.unit)}">${v}<small>${esc(s.unit === "FPS" ? "" : s.unit)}</small></span>`}${spark(s.history)}</div>`;
+    return `<div class="stat"><span class="k">${esc(s.label)}</span>${v === null ? (needsHw ? `<button class="v none linkish" data-goto="settings">How to turn on</button>` : `<span class="v none">No reading</span>`) : `<span class="v ${heat(s.value, s.unit)}">${v}<small>${esc(s.unit === "FPS" ? "" : s.unit)}</small></span>`}${spark(s.history)}</div>`;
   }).join("");
 
   const devs = st.screens.map((s) => {
@@ -242,7 +253,12 @@ function allDesigns(isFan) {
   return [...meta.themes.filter((t) => (isFan ? t.fans : t.cooler)).map((t) => ({ id: t.id, name: t.name, config: t.config, mine: false })),
     ...Object.entries(cfg.my_themes).map(([name, conf]) => ({ id: "my:" + name, name, config: conf, mine: true }))];
 }
-const picKey = (isFan, id, conf) => (isFan ? "f|" : "c|") + id + "|" + JSON.stringify(conf).length;
+// gallery previews use this screen's own "behind the numbers" and blur choices
+const lookOf = () => { const c = scr(selScreen); return { outline: c.outline !== false, plates: !!c.plates, blur: c.blur || 0 }; };
+const withLook = (conf) => ({ ...clone(conf), ...lookOf() });
+// one name for a background tile's picture, used both when it's made and when it's shown
+const bgKey = (isFan, id, c) => (isFan ? "f|bg|" : "c|bg|") + id + "|" + c.accent + c.solid + c.speed + "|" + (c.blur || 0);
+const picKey = (isFan, id, conf) => (isFan ? "f|" : "c|") + id + "|" + JSON.stringify(conf).length + "|" + JSON.stringify(lookOf());
 
 // render the design gallery and background tiles in the engine, with live readings
 async function renderDesignPics(force) {
@@ -251,11 +267,17 @@ async function renderDesignPics(force) {
   const isFan = cur.kind === "fan";
   const c = scr(selScreen);
   const want = [];
-  for (const d of allDesigns(isFan)) { const k = picKey(isFan, d.id, d.config); if (force || !designPics[k]) want.push([k, d.config]); }
+  for (const d of allDesigns(isFan)) { const k = picKey(isFan, d.id, d.config); if (force || !designPics[k]) want.push([k, withLook(d.config)]); }
   for (const b of meta.backgrounds) {
     if (b.id === "image" || b.id === "video") continue;
     const conf = clone(c); conf.background = b.id; conf.layout = "none"; conf.rotation = 0; conf.dim = b.id === "matrix" ? 0.25 : 0;
-    const k = (isFan ? "f|bg|" : "c|bg|") + b.id + "|" + c.accent + c.solid + c.speed;
+    const k = bgKey(isFan, b.id, c);
+    if (force || !designPics[k]) want.push([k, conf]);
+  }
+  // the chosen picture gets a tile picture too
+  if (c.background === "image" && c.image) {
+    const conf = clone(c); conf.layout = "none"; conf.widgets = []; conf.rotation = 0;
+    const k = bgKey(isFan, "image:" + c.image, c);
     if (force || !designPics[k]) want.push([k, conf]);
   }
   if (!want.length) return;
@@ -313,7 +335,14 @@ function renderScreens(force) {
   setSeg($("#scr-clock"), c.clock_24h ? 24 : 12);
   $("#scr-speed").value = c.speed; $("#scr-speed-v").textContent = c.speed.toFixed(1) + "×";
   $("#scr-dim").value = c.dim; $("#scr-dim-v").textContent = Math.round(c.dim * 100) + "%";
-  setSwitch($("#scr-plates"), c.plates);
+  setSeg($("#scr-behind"), c.plates ? "plate" : c.outline !== false ? "outline" : "none");
+  $("#scr-blur").value = c.blur || 0; $("#scr-blur-v").textContent = c.blur > 0.01 ? Math.round(c.blur * 100) + "%" : "Off";
+  const gr = gradeOf(c);
+  $("#scr-contrast").value = gr[0]; $("#scr-contrast-v").textContent = Math.round(gr[0] * 100) + "%";
+  $("#scr-sat").value = gr[1]; $("#scr-sat-v").textContent = Math.round(gr[1] * 100) + "%";
+  $("#scr-gamma").value = gr[2]; $("#scr-gamma-v").textContent = Math.round(gr[2] * 100) + "%";
+  $("#scr-black").value = gr[3]; $("#scr-black-v").textContent = gr[3] > 0.005 ? Math.round(gr[3] * 100) + "%" : "Off";
+  setSeg($("#scr-grade"), Object.keys(GRADES).find((k) => GRADES[k].every((v, i) => Math.abs(v - gr[i]) < 0.011)) || "");
   $("#scr-bright").value = c.brightness; $("#scr-bright-v").textContent = c.brightness + "%";
   $("#scr-fps").value = String(c.fps);
   setSeg($("#scr-rot"), c.rotation);
@@ -387,14 +416,17 @@ function renderOverlay(c) {
 function renderBackgrounds(c, isFan, force) {
   const el = $("#scr-bgs");
   const lib = (library || []).filter((x) => x.kind === (isFan ? "fan" : "cooler"));
-  const sig = JSON.stringify([c.background, c.image, c.accent, c.solid, isFan, lib.length, meta.backgrounds.map((b) => !!designPics[(isFan ? "f|bg|" : "c|bg|") + b.id + "|" + c.accent + c.solid + c.speed])]);
+  const sig = JSON.stringify([c.background, c.image, c.accent, c.solid, isFan, lib.length, meta.backgrounds.map((b) => !!designPics[bgKey(isFan, b.id, c)]), !!designPics[bgKey(isFan, "image:" + c.image, c)]]);
   if (force || el.dataset.sig !== sig) {
     el.dataset.sig = sig;
     el.className = "bgs " + (isFan ? "rd" : "sq");
     const tiles = meta.backgrounds.filter((b) => b.id !== "video").map((b) => {
-      let pic = designPics[(isFan ? "f|bg|" : "c|bg|") + b.id + "|" + c.accent + c.solid + c.speed];
+      let pic = designPics[bgKey(isFan, b.id, c)];
       const on = c.background === b.id;
-      if (b.id === "image") return `<button class="bg" data-bg="image" aria-pressed="${on}"><i class="ph pic">${on && c.image ? esc(c.image.split(/[\\/]/).pop()) : "Choose…"}</i><b>Picture or GIF</b></button>`;
+      if (b.id === "image") {
+        const own = on && c.image ? designPics[bgKey(isFan, "image:" + c.image, c)] : null;
+        return `<button class="bg" data-bg="image" aria-pressed="${on}">${own ? `<img src="${own}" alt="">` : `<i class="ph pic">${on && c.image ? esc(c.image.split(/[\\/]/).pop()) : "Choose…"}</i>`}<b>Picture or GIF</b></button>`;
+      }
       return `<button class="bg" data-bg="${b.id}" aria-pressed="${on}">${pic ? `<img src="${pic}" alt="">` : `<i class="ph"></i>`}<b>${esc(b.name)}</b></button>`;
     });
     const ownVideo = c.background === "video" && !lib.some((x) => x.path === c.image);
@@ -421,7 +453,7 @@ $("#scr-designs").addEventListener("click", (e) => {
   const base = id.startsWith("my:") ? cfg.my_themes[id.slice(3)] : meta.themes.find((t) => t.id === id)?.config;
   if (!base) return;
   editing = false;
-  editScreen((c) => { const keep = { enabled: c.enabled, brightness: c.brightness, rotation: c.rotation, fps: c.fps }; Object.assign(c, clone(base), keep, { theme: id }); });
+  editScreen((c) => { const keep = { enabled: c.enabled, brightness: c.brightness, rotation: c.rotation, fps: c.fps, outline: c.outline, plates: c.plates, blur: c.blur, contrast: c.contrast, saturation: c.saturation, gamma: c.gamma, black: c.black }; Object.assign(c, clone(base), keep, { theme: id }); });
   renderDesignPics();
 });
 $("#scr-edit-layout").onclick = async () => {
@@ -482,7 +514,6 @@ $("#scr-overlay").addEventListener("pointermove", (e) => {
   const y = Math.max(0.02, Math.min(0.98, (e.clientY - r.top) / r.height - dy));
   const c = clone(scr(selScreen)); c.widgets[selWidget].x = Math.round(x * 200) / 200; c.widgets[selWidget].y = Math.round(y * 200) / 200;
   cfg.screens[selScreen] = c;
-  if (cfg.link_fan_screens && selScreen !== "cooler") fanScreens().forEach((s) => { if (s.key !== selScreen) { const o = clone(c); o.enabled = scr(s.key).enabled; cfg.screens[s.key] = o; } });
   save(); renderOverlay(c);
 });
 $("#scr-overlay").addEventListener("pointerup", () => { wdrag = null; });
@@ -516,11 +547,24 @@ for (const [id, key, num] of [["#scr-speed", "speed", parseFloat], ["#scr-dim", 
 }
 $("#scr-fps").onchange = (e) => editScreen((c) => { c.fps = parseInt(e.target.value, 10); });
 $("#scr-rot").onclick = (e) => { const b = e.target.closest("button"); if (b) editScreen((c) => { c.rotation = parseInt(b.dataset.v, 10); }); };
-$("#scr-plates").onclick = () => editScreen((c) => { c.plates = !c.plates; });
+// colour presets: contrast, saturation, depth (gamma); the panels look washed out "as drawn"
+const GRADES = { natural: [1, 1, 1, 0], vivid: [1.12, 1.3, 1.15, 0.06], punchy: [1.2, 1.55, 1.25, 0.1] };
+const gradeOf = (c) => [c.contrast || 1, c.saturation || 1, c.gamma || 1, c.black ?? 0];
+$("#scr-grade").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const [ct, st, gm, bk] = GRADES[b.dataset.v]; editScreen((c) => { c.contrast = ct; c.saturation = st; c.gamma = gm; c.black = bk; }); };
+for (const [id, key] of [["#scr-contrast", "contrast"], ["#scr-sat", "saturation"], ["#scr-gamma", "gamma"], ["#scr-black", "black"]]) {
+  $(id).oninput = (e) => editScreen((c) => { c[key] = parseFloat(e.target.value); });
+}
+$("#scr-behind").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  editScreen((c) => { c.plates = b.dataset.v === "plate"; c.outline = b.dataset.v === "outline"; c.widgets.forEach((w) => { w.plate = c.plates; }); });
+  renderDesignPics();
+};
+$("#scr-blur").oninput = (e) => editScreen((c) => { c.blur = parseFloat(e.target.value); });
+$("#scr-blur").onchange = () => renderDesignPics();
 $("#scr-enabled").onclick = () => { const c = clone(scr(selScreen)); c.enabled = !c.enabled; cfg.screens[selScreen] = c; save(); renderScreens(); };
 $("#scr-link").onclick = () => {
   cfg.link_fan_screens = !cfg.link_fan_screens;
-  if (cfg.link_fan_screens && selScreen !== "cooler") { const src = scr(selScreen); fanScreens().forEach((s) => { const c = clone(src); c.enabled = scr(s.key).enabled; cfg.screens[s.key] = c; }); }
+  if (cfg.link_fan_screens && selScreen !== "cooler") shareLook(scr(selScreen));
   save(); renderScreens();
 };
 $("#scr-identify").onclick = () => { invoke("identify"); toast("Each screen shows its name for a few seconds"); };
@@ -672,8 +716,16 @@ $("#fan-groups").addEventListener("click", (e) => { const b = e.target.closest("
 let selLight = null;
 const LT_COLORS = ["#2cc4bc", "#b07cff", "#ff6fa8", "#4f9dff", "#ffb347", "#00ff6a", "#ff5a4f", "#ffffff"];
 function lightOf(mac) { return cfg.lighting[mac] || { effect: "auto", colors: ["#2cc4bc", "#b07cff"], speed: 5, brightness: 80, reverse: false }; }
-function lightDevices() { return (snap.status.wireless || []).filter((d) => zonesOf(d).length); }
+// "Rest of the PC": motherboard, memory, graphics card and the rest, through OpenRGB
+function pcDev() {
+  const list = (snap.status.pc_devices || []).filter((p) => p.leds > 0);
+  const show = list.length ? list : [{ name: "Motherboard", kind: "Motherboard", leds: 24 }, { name: "Memory", kind: "Memory", leds: 16 }, { name: "Graphics card", kind: "Graphics card", leds: 20 }];
+  return { mac: "pc", pc: true, kind: "Rest of the PC", is_aio: false, fan_count: list.length, found: list,
+    zonesPc: show.map((p) => Math.max(8, Math.min(p.leds, 40))), labels: show.map((p) => p.kind) };
+}
+function lightDevices() { return [...(snap.status.wireless || []).filter((d) => zonesOf(d).length), pcDev()]; }
 function zonesOf(d) {
+  if (d.pc) return d.zonesPc;
   const b = d.fan_types.find((x) => x) || 0;
   const per = d.is_aio ? 24 : b >= 20 && b <= 26 ? 40 : (b >= 27 && b <= 35) || (b >= 51 && b <= 58) ? 26 : (b >= 36 && b <= 39) || (b >= 43 && b <= 50) ? 44 : b >= 40 && b <= 42 ? 24 : b >= 59 && b <= 62 ? 52 : 0;
   if (!per || !d.fan_count) return [];
@@ -695,17 +747,29 @@ function renderLighting() {
     return;
   }
   if (!w.find((d) => d.mac === selLight)) selLight = w[0].mac;
-  const gSig = JSON.stringify([w.map((d) => d.mac), selLight, cfg.lighting, st.lighting, cfg.fans]);
+  const gSig = JSON.stringify([w.map((d) => d.mac), selLight, cfg.lighting, st.lighting, cfg.fans, st.pc_rgb, st.pc_devices]);
   const groups = $("#lt-groups");
   if (groups.dataset.sig !== gSig) {
     groups.dataset.sig = gSig;
     groups.innerHTML = w.map((d) => {
       const l = lightOf(d.mac), note = st.lighting?.[d.mac];
       const n = d.fan_count;
+      if (d.pc) {
+        const sub = n ? `${n} device${n === 1 ? "" : "s"} through OpenRGB · ${effectName(l.effect)}` : (st.pc_rgb || "Needs OpenRGB");
+        return `<button class="group" data-mac="pc" aria-pressed="${selLight === "pc"}"><b>Rest of the PC</b><span class="sub">${esc(sub)}</span><span class="ring" style="background:${ringCss(l)}"></span></button>`;
+      }
       return `<button class="group" data-mac="${esc(d.mac)}" aria-pressed="${d.mac === selLight}"><b>${esc(cfg.fans[d.mac]?.name || d.kind)}</b><span class="sub">${n} fan${n === 1 ? "" : "s"}${d.is_aio ? " + pump" : ""} · ${esc(effectName(l.effect))}${note && note !== "Playing" ? " · " + esc(note) : ""}</span><span class="ring" style="background:${ringCss(l)}"></span></button>`;
     }).join("");
   }
   renderLightEditor();
+}
+function pcBox(d, skip) {
+  const st = snap.status, ok = (st.pc_rgb || "").startsWith("Connected");
+  const rows = d.found.map((p) => `<div class="setrow"><div class="t"><b>${esc(p.name)}</b><span>${esc(p.kind)} · ${p.leds} light${p.leds === 1 ? "" : "s"}</span></div><button class="switch" role="switch" data-pcskip="${esc(p.name)}" aria-checked="${p.on}" aria-label="Light ${esc(p.name)}"></button></div>`).join("");
+  const help = ok ? "" : `<ol class="steps small muted" style="margin:8px 0 0">
+      <li>Install <b>OpenRGB</b> 1.1 or later (Vane's installer offers it, or get it from openrgb.org). It runs as a Windows service with its SDK server on, and Vane connects by itself.</li>
+      <li>With an older OpenRGB, run it once as administrator, then click <b>Start Server</b> on its SDK Server tab.</li></ol>`;
+  return `<div><div class="src"><span class="dot ${ok ? "" : "warn"}"></span>${esc(st.pc_rgb || "Looking for OpenRGB…")}</div>${help}${rows ? `<div style="margin-top:6px">${rows}</div>` : ""}</div>`;
 }
 function ringCss(l) {
   if (l.effect === "off") return "var(--surface-hi)";
@@ -718,8 +782,9 @@ function renderLightEditor() {
   const d = lightDevices().find((x) => x.mac === selLight); if (!d) return;
   const l = lightOf(d.mac);
   const ed = $("#lt-editor");
-  const note = snap.status.lighting?.[d.mac];
-  const sig = JSON.stringify([d.mac, l, note]);
+  const note = d.pc ? null : snap.status.lighting?.[d.mac];
+  const pcSkip = cfg.openrgb_skip || [];
+  const sig = JSON.stringify([d.mac, l, note, d.pc && [snap.status.pc_rgb, d.found, pcSkip, cfg.openrgb_include, cfg.openrgb_client]]);
   if (ed.dataset.sig === sig) return;
   if (ed.contains(document.activeElement) && document.activeElement.matches("input")) return;
   ed.dataset.sig = sig;
@@ -728,8 +793,9 @@ function renderLightEditor() {
   ed.innerHTML = `<div style="display:grid;gap:16px">
     <div class="ltview" aria-hidden="true"><canvas id="lt-canvas" width="560" height="170"></canvas></div>
     ${note ? `<div class="src"><span class="dot ${note === "Playing" ? "" : note.startsWith("Waiting") || note.startsWith("Turning") ? "warn" : "hot"}"></span>${esc(note === "Playing" ? "Playing on the fans" : note)}</div>` : ""}
-    <div class="field"><span>Effect</span><div class="effects">${meta.effects.map((e) => `<button class="effect" data-eff="${e.id}" aria-pressed="${e.id === l.effect}">${esc(e.name)}</button>`).join("")}</div></div>
-    ${l.effect === "auto" ? `<p class="small muted" style="margin:0">Vane sends nothing, so the fans keep whatever lighting they have now.</p>` : ""}
+    ${d.pc ? pcBox(d, pcSkip) : ""}
+    <div class="field"><span>Effect</span><div class="effects">${meta.effects.filter((e) => !(d.pc && e.id === "openrgb")).map((e) => `<button class="effect" data-eff="${e.id}" aria-pressed="${e.id === l.effect}">${esc(e.name)}</button>`).join("")}</div></div>
+    ${l.effect === "auto" ? `<p class="small muted" style="margin:0">${d.pc ? "Vane leaves this lighting alone, so the motherboard, memory and graphics card keep what they have now." : "Vane sends nothing, so the fans keep whatever lighting they have now."}</p>` : ""}
     ${l.effect === "openrgb" ? `<p class="small muted" style="margin:0">OpenRGB sets the colours. Pick another effect to take the lights back.</p>` : ""}
     ${l.effect === "temperature" ? `<p class="small muted" style="margin:0">Blue when cool, through green and amber, to red when hot. Follows the hottest of CPU and GPU.</p>` : ""}
     ${eff.colors ? `<div class="field"><span>Colours</span><div class="swatches" id="lt-colors">${l.colors.map((c, i) => `<span class="lc"><input type="color" data-ci="${i}" value="${c}" aria-label="Colour ${i + 1}">${l.colors.length > 1 ? `<button class="x" data-cdel="${i}" aria-label="Remove colour ${i + 1}">×</button>` : ""}</span>`).join("")}${l.colors.length < 4 ? `<button class="btn small" id="lt-cadd">Add colour</button>` : ""}</div><div class="swatches" style="margin-top:6px">${LT_COLORS.map((c) => `<button class="sw sm" data-cset="${c}" style="background:${c}" aria-label="Use ${c}"></button>`).join("")}</div></div>` : ""}
@@ -784,7 +850,7 @@ const ltAnim = (() => {
         led++;
       }
       cx.shadowBlur = 0; cx.fillStyle = "rgba(128,140,150,.8)"; cx.font = "12px Segoe UI, sans-serif"; cx.textAlign = "center";
-      cx.fillText(isPump ? "Pump" : `Fan ${dev.is_aio ? z : z + 1}`, cxp, cyp + 4);
+      cx.fillText(dev.labels ? dev.labels[z] : isPump ? "Pump" : `Fan ${dev.is_aio ? z : z + 1}`, cxp, cyp + 4);
     });
   }
   return { set(d, l) { dev = d; light = l; if (!h && !matchMedia("(prefers-reduced-motion: reduce)").matches) h = requestAnimationFrame(frame); else if (!h) frame(performance.now()); } };
@@ -795,6 +861,16 @@ function editLight(fn, full = true) {
 }
 $("#lt-groups").addEventListener("click", (e) => { const b = e.target.closest("[data-mac]"); if (b) { selLight = b.dataset.mac; renderLighting(); } });
 $("#lt-editor").addEventListener("click", (e) => {
+  const sk = e.target.closest("[data-pcskip]");
+  if (sk) {
+    // motherboard, memory, graphics card, coolers, strips and cases are on unless left out; the rest only when added
+    const n = sk.dataset.pcskip, dev = (snap.status.pc_devices || []).find((p) => p.name === n); if (!dev) return;
+    const byDefault = ["Motherboard", "Memory", "Graphics card", "Cooler", "LED strip", "Case"].includes(dev.kind);
+    const skip = cfg.openrgb_skip || [], inc = cfg.openrgb_include || [];
+    if (byDefault) cfg.openrgb_skip = dev.on ? [...skip, n] : skip.filter((x) => x !== n);
+    else cfg.openrgb_include = dev.on ? inc.filter((x) => x !== n) : [...inc, n];
+    dev.on = !dev.on; save(); renderLighting(); return;
+  }
   const ef = e.target.closest("[data-eff]"); if (ef) { editLight((l) => { l.effect = ef.dataset.eff; }); return; }
   const del = e.target.closest("[data-cdel]"); if (del) { editLight((l) => { l.colors.splice(+del.dataset.cdel, 1); }); return; }
   if (e.target.closest("#lt-cadd")) { editLight((l) => { l.colors.push(LT_COLORS[l.colors.length % LT_COLORS.length]); }); return; }
@@ -820,6 +896,7 @@ function renderSettings() {
   setSwitch($("#set-auto"), cfg.start_with_windows);
   setSwitch($("#set-tray"), cfg.close_to_tray);
   setSwitch($("#set-screens"), cfg.screens_on);
+  setSwitch($("#set-ab"), cfg.start_afterburner !== false);
   const st = snap.status;
   $("#lc-state").textContent = st.lconnect_running ? "L-Connect 3 is running" : st.paused ? "L-Connect 3 has the devices" : "L-Connect 3 is off";
   $("#lc-sub").textContent = st.lconnect_running ? "Turn it off so Vane can drive the screens and fans. Windows asks for admin." : "Its services and startup task stay disabled until you turn it back on.";
@@ -830,6 +907,7 @@ function renderSettings() {
   const gpuV = smart("gpu.voltage")?.value != null, cpuT = smart("cpu.temp")?.value != null;
   $("#set-sources").innerHTML = [
     [src.rtss, "RivaTuner (RTSS)", src.rtss ? (src.game ? "Reading " + src.game : "Running, no game in front") : "Not running. FPS and frame time need it."],
+    [src.afterburner_cpu, "MSI Afterburner", src.afterburner ? (src.afterburner_cpu ? "CPU temperature, power and clock" + ((snap.sensors.groups["MSI Afterburner"] || []).some((r) => r.label === "GPU voltage") ? ", GPU voltage" : "") : "Running, but CPU temperature isn't in its monitoring list") : "Not running. CPU temperature comes from it."],
     [!!src.nvidia, "NVIDIA driver", src.nvidia ? `${src.nvidia}: temperature, power, load, clocks, VRAM, fan` : "No NVIDIA GPU found"],
     [src.hwinfo_shared_memory, "HWiNFO shared memory", src.hwinfo_shared_memory ? "On: every HWiNFO reading is available" : "Off"],
     [src.hwinfo_gadget > 0, "HWiNFO gadget values", src.hwinfo_gadget ? src.hwinfo_gadget + " readings shared" : "None shared"],
@@ -837,16 +915,17 @@ function renderSettings() {
     [st.wireless.some((d) => d.is_aio), "HydroShift II", "Coolant and pump"],
   ].map(([ok, n, s]) => `<div class="src"><span class="dot ${ok ? "" : "off"}"></span><span class="nm">${esc(n)}</span><span class="muted">${esc(s)}</span></div>`).join("");
   const tip = $("#set-tip");
-  const missing = [!cpuT && ["CPU temperature", "CPU (Tctl/Tdie)", "under the CPU's Enhanced sensors"], !gpuV && ["GPU voltage", "GPU Core Voltage", "under the GPU"]].filter(Boolean);
+  const missing = [!cpuT && "CPU temperature", !gpuV && "GPU voltage"].filter(Boolean);
   if (!missing.length) { tip.hidden = true; }
   else {
     tip.hidden = false;
-    tip.innerHTML = `<b>${missing.map((m) => m[0]).join(" and ")} ${missing.length > 1 ? "aren't" : "isn't"} coming through yet.</b> Windows only hands these to programs with a hardware driver, so Vane reads them from HWiNFO. Turn them on there:
-      <ol><li>Open HWiNFO's <b>Sensors</b> window.</li>
-      ${missing.map((m) => `<li>Find <b>${m[1]}</b> (${m[2]}), right-click it, choose <b>Customize values</b> and tick <b>Report value in Gadget</b>.</li>`).join("")}
-      <li>Click OK. The reading shows up here within a few seconds. No time limit, and it survives restarts.</li></ol>
-      <span class="small">Or turn on <b>Shared Memory Support</b> in HWiNFO's settings to share every reading (the free version switches it off every 12 hours).</span>
-      ${!gpuV && src.nvidia ? `<p class="small" style="margin:8px 0 0">Your Stream Deck's GPU button shows <b>power in watts</b> from the NVIDIA driver. Vane reads that too, as <b>GPU power</b>. NVIDIA doesn't give voltage to apps, which is why it needs HWiNFO.</p>` : ""}`;
+    tip.innerHTML = `<b>${missing.join(" and ")} ${missing.length > 1 ? "aren't" : "isn't"} coming through yet.</b> Windows only hands these to programs with a hardware driver, so Vane reads them from MSI Afterburner, the same place your in-game overlay gets them.
+      <ol>${src.afterburner ? "" : `<li>Start <b>MSI Afterburner</b> and leave it running in the tray (the installer can add it).</li>`}
+      <li>In Afterburner, open <b>Settings</b> (the gear).</li>
+      ${!gpuV ? `<li>On the <b>General</b> tab, tick <b>Unlock voltage monitoring</b>.</li>` : ""}
+      <li>On the <b>Monitoring</b> tab, tick ${missing.map((m) => `<b>${m === "CPU temperature" ? "CPU temperature" : "Voltage"}</b>`).join(" and ")} in the list, then click OK.</li>
+      <li>The reading shows up here within a few seconds.</li></ol>
+      <span class="small">HWiNFO works too: in its Sensors window right-click <b>CPU (Tctl/Tdie)</b> or <b>GPU Core Voltage</b>, choose Customize values and tick <b>Report value in Gadget</b>.</span>`;
   }
   const all = $("#set-all");
   if (all.closest("details").open) {
@@ -859,6 +938,7 @@ $("#set-theme").onclick = (e) => { const b = e.target.closest("button"); if (!b)
 $("#set-auto").onclick = () => { cfg.start_with_windows = !cfg.start_with_windows; save(); renderSettings(); toast(cfg.start_with_windows ? "Vane starts with Windows" : "Vane won't start with Windows"); };
 $("#set-tray").onclick = () => { cfg.close_to_tray = !cfg.close_to_tray; save(); renderSettings(); };
 $("#set-screens").onclick = () => { cfg.screens_on = !cfg.screens_on; save(); renderSettings(); };
+$("#set-ab").onclick = () => { cfg.start_afterburner = cfg.start_afterburner === false; save(); renderSettings(); };
 $("#set-all").closest("details").addEventListener("toggle", renderSettings);
 $("#lc-btn").onclick = async () => {
   if (snap.status.lconnect_running) { await lconnect(false); return; }

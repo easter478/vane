@@ -19,6 +19,17 @@ pub struct ScreenConfig {
     pub speed: f32,
     pub dim: f32,
     pub plates: bool,
+    /// dark outline around numbers and words so they stand out from busy backgrounds
+    pub outline: bool,
+    /// background blur, 0 (sharp) to 1 (very soft)
+    pub blur: f32,
+    /// colour of the whole picture, for panels that look washed out: 1.0 leaves it as drawn
+    pub contrast: f32,
+    pub saturation: f32,
+    /// above 1 darkens the mid-tones (deeper picture), below 1 lifts them
+    pub gamma: f32,
+    /// 0 to 0.3: tones darker than this become pure black, the darkest an LCD backlight allows
+    pub black: f32,
     pub clock_24h: bool,
     pub brightness: u8,
     pub rotation: u16,
@@ -46,7 +57,7 @@ pub struct Widget {
 
 impl Default for Widget {
     fn default() -> Self {
-        Self { kind: "value".into(), sensor: "cpu.load".into(), x: 0.5, y: 0.5, size: 1.0, color: "heat".into(), label: String::new(), plate: true }
+        Self { kind: "value".into(), sensor: "cpu.load".into(), x: 0.5, y: 0.5, size: 1.0, color: "heat".into(), label: String::new(), plate: false }
     }
 }
 
@@ -69,7 +80,13 @@ fn sc(name: &str, bg: &str, layout: &str, slots: &[&str], accent: &str) -> Scree
         image: String::new(),
         speed: 1.0,
         dim: if bg == "matrix" { 0.25 } else { 0.0 },
-        plates: true,
+        plates: false,
+        outline: true,
+        blur: 0.0,
+        contrast: VIVID.0,
+        saturation: VIVID.1,
+        gamma: VIVID.2,
+        black: 0.06,
         clock_24h: true,
         brightness: 80,
         rotation: 0,
@@ -83,6 +100,7 @@ pub const THEMES: &[(&str, &str, bool, bool)] = &[
     ("matrix-fps", "Matrix FPS", true, true),
     ("matrix-system", "Matrix system", true, true),
     ("matrix-rain", "Matrix rain", true, true),
+    ("fps-watts", "FPS and GPU power", true, true),
     ("neon-ring", "Neon ring", true, true),
     ("nebula-gaming", "Nebula gaming", true, false),
     ("synthwave-clock", "Synthwave clock", true, true),
@@ -96,14 +114,15 @@ pub const THEMES: &[(&str, &str, bool, bool)] = &[
 
 pub fn theme(id: &str) -> Option<ScreenConfig> {
     Some(match id {
-        "matrix-fps" => sc(id, "matrix", "gaming", &["fps", "frametime", "fps.low1", "gpu.temp", "gpu.voltage"], "#00ff6a"),
+        "matrix-fps" => sc(id, "matrix", "gaming", &["fps", "frametime", "fps.low1", "gpu.temp", "gpu.power"], "#00ff6a"),
         "matrix-system" => sc(id, "matrix", "system", &["cpu.temp", "cpu.load", "gpu.temp", "gpu.load"], "#00ff6a"),
         "matrix-rain" => sc(id, "matrix", "none", &[], "#00ff6a"),
+        "fps-watts" => sc(id, "pulse", "dual", &["fps", "gpu.power"], "#4f9dff"),
         "neon-ring" => sc(id, "waves", "ring", &["cpu.temp", "cpu.load"], "#2cc4bc"),
-        "nebula-gaming" => sc(id, "nebula", "gaming", &["fps", "frametime", "gpu.temp", "gpu.load", "gpu.voltage"], "#b07cff"),
+        "nebula-gaming" => sc(id, "nebula", "gaming", &["fps", "frametime", "gpu.temp", "gpu.load", "gpu.power"], "#b07cff"),
         "synthwave-clock" => sc(id, "synthwave", "clock_sensors", &["cpu.temp", "gpu.temp", "fps"], "#ff6fa8"),
         "coolant" => sc(id, "pulse", "ring", &["coolant", "pump"], "#2cc4bc"),
-        "carbon-bars" => sc(id, "carbon", "bars", &["cpu.temp", "gpu.temp", "gpu.load", "gpu.voltage", "frametime"], "#ffb347"),
+        "carbon-bars" => sc(id, "carbon", "bars", &["cpu.temp", "gpu.temp", "gpu.load", "gpu.power", "frametime"], "#ffb347"),
         "radar-fps" => sc(id, "radar", "big", &["fps"], "#3dff8f"),
         "aurora-clock" => sc(id, "aurora", "clock", &["gpu.temp"], "#7dffd0"),
         "pulse-gpu" => sc(id, "pulse", "big", &["gpu.temp"], "#4f9dff"),
@@ -197,6 +216,18 @@ pub struct Config {
     /// lets OpenRGB see and colour the wireless fans (Vane acts as an OpenRGB SDK server on this PC only)
     pub openrgb_server: bool,
     pub openrgb_port: u16,
+    /// connect to OpenRGB (port 6742) to light the motherboard, memory, graphics card and other RGB it finds
+    pub openrgb_client: bool,
+    /// start OpenRGB in the background (with its server on) when Vane starts, if it's installed
+    pub openrgb_launch: bool,
+    /// start MSI Afterburner and RivaTuner (through their own startup tasks) when they aren't running
+    pub start_afterburner: bool,
+    /// OpenRGB device names Vane leaves alone (motherboard, memory, graphics card… are on by default)
+    pub openrgb_skip: Vec<String>,
+    /// other OpenRGB devices (keyboards, Stream Deck…) the user switched on
+    pub openrgb_include: Vec<String>,
+    #[serde(default)]
+    pub version: u32,
 }
 
 /// Lighting for one wireless group (fans, and the pump ring on a HydroShift).
@@ -234,9 +265,31 @@ impl Default for Config {
             lighting: BTreeMap::new(),
             openrgb_server: true,
             openrgb_port: 6743,
+            openrgb_client: true,
+            openrgb_launch: true,
+            openrgb_skip: Vec::new(),
+            openrgb_include: Vec::new(),
+            start_afterburner: true,
+            version: 3,
         }
     }
 }
+
+/// Appends a timestamped line to a diagnostics log in Vane's folder (kept under 200 KB).
+pub fn log_to(name: &str, msg: &str) {
+    use std::io::Write;
+    let p = dir().join(name);
+    if std::fs::metadata(&p).map(|m| m.len() > 200_000).unwrap_or(false) {
+        let _ = std::fs::remove_file(&p);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+        let _ = writeln!(f, "{} {msg}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    }
+}
+
+/// Colour (contrast, saturation, gamma) new screens start with: the LCD panels look washed out
+/// with the picture as drawn, so it starts a little deeper and more colourful.
+pub const VIVID: (f32, f32, f32) = (1.12, 1.3, 1.15);
 
 pub fn dir() -> PathBuf {
     let base = std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
@@ -248,7 +301,25 @@ pub fn dir() -> PathBuf {
 impl Config {
     pub fn load() -> Self {
         // tolerate a byte-order mark (Notepad and PowerShell add one)
-        std::fs::read_to_string(dir().join("config.json")).ok().and_then(|s| serde_json::from_str(s.trim_start_matches('\u{feff}')).ok()).unwrap_or_default()
+        let mut c: Config = std::fs::read_to_string(dir().join("config.json")).ok().and_then(|s| serde_json::from_str(s.trim_start_matches('\u{feff}')).ok()).unwrap_or_default();
+        if c.version < 2 {
+            // 0.2: readings get a dark outline instead of grey glass boxes
+            for sc in c.screens.values_mut().chain(c.my_themes.values_mut()) {
+                sc.plates = false;
+                sc.outline = true;
+                sc.widgets.iter_mut().for_each(|w| w.plate = false);
+            }
+            c.version = 2;
+        }
+        if c.version < 3 {
+            // 0.2.1: screens start with the vivid colour setting
+            for sc in c.screens.values_mut().chain(c.my_themes.values_mut()) {
+                (sc.contrast, sc.saturation, sc.gamma) = VIVID;
+                sc.black = 0.06;
+            }
+            c.version = 3;
+        }
+        c
     }
     pub fn save(&self) {
         let p = dir().join("config.json");

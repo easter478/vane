@@ -8,6 +8,7 @@ mod engine;
 mod library;
 mod lighting;
 mod openrgb;
+mod openrgb_client;
 mod render;
 mod sensors;
 mod system;

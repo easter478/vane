@@ -5,6 +5,35 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot
 
 /// True if any L-Connect process is running.
 pub fn lconnect_running() -> bool {
+    process_running(|n| n.starts_with("l-connect"))
+}
+
+/// Start MSI Afterburner (and with it RivaTuner) through the startup tasks they make for
+/// "Start with Windows". Those tasks run them elevated without a UAC prompt, which a plain launch
+/// can't do. Returns which tasks were started.
+pub fn start_monitoring_tools() -> Vec<&'static str> {
+    let mut out = Vec::new();
+    #[cfg(windows)]
+    for (task, exe) in [("MSIAfterburner", "msiafterburner.exe"), ("RTSS", "rtss.exe")] {
+        if process_running(|n| n == exe) {
+            continue;
+        }
+        use std::os::windows::process::CommandExt;
+        let ok = std::process::Command::new("schtasks")
+            .args(["/run", "/tn", task])
+            .creation_flags(0x0800_0000)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            out.push(task);
+        }
+    }
+    out
+}
+
+/// True if a process whose lowercase exe name matches is running.
+pub fn process_running(want: impl Fn(&str) -> bool) -> bool {
     #[cfg(windows)]
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -18,7 +47,7 @@ pub fn lconnect_running() -> bool {
             loop {
                 let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
                 let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_lowercase();
-                if name.starts_with("l-connect") {
+                if want(&name) {
                     found = true;
                     break;
                 }
